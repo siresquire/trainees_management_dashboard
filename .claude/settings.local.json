@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(npm --version)",
+      "Bash(npx create-next-app@latest . --typescript --eslint --tailwind --app --src-dir --import-alias \"@/*\" --no-turbopack --yes)",
+      "Bash(move architecture.html ..\\\\architecture.html)"
+    ]
+  }
+}
