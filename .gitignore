@@ -1,14 +1,11 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# Local env — never commit secrets
+# ── Secrets & environment ─────────────────────────────────────────────────────
+.env
 .env.local
 .env*.local
+.env.production
+.env.staging
 
-# Supabase local
-supabase/.branches
-supabase/.temp
-
-# dependencies
+# ── Dependencies ──────────────────────────────────────────────────────────────
 /node_modules
 /.pnp
 .pnp.*
@@ -18,32 +15,60 @@ supabase/.temp
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# ── Next.js build output ──────────────────────────────────────────────────────
 /.next/
 /out/
-
-# production
 /build
 
-# misc
-.DS_Store
-*.pem
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
 
-# debug
+# ── Supabase local state (not for production) ─────────────────────────────────
+supabase/.branches
+supabase/.temp
+supabase/snippets/
+
+# ── Claude Code local files ───────────────────────────────────────────────────
+.claude/settings.local.json
+.claude/worktrees/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage
+/.nyc_output
 
-# vercel
+# ── Deployment ────────────────────────────────────────────────────────────────
 .vercel
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# ── OS generated ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ── Certificates & keys ───────────────────────────────────────────────────────
+*.pem
+*.key
+*.cert
+*.p12
+
+# ── IDE & editor ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-compose.override.yml
