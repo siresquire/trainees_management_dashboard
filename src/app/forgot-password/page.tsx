@@ -1,16 +1,37 @@
 "use client";
 
-import { useActionState } from "react";
-import { requestPasswordReset } from "@/app/login/actions";
+import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
 const inputCls =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent";
 
 export default function ForgotPasswordPage() {
-  const [state, action, isPending] = useActionState(requestPasswordReset, null);
+  const [email, setEmail]       = useState("");
+  const [sent, setSent]         = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [loading, setLoading]   = useState(false);
 
-  if (state?.success) {
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    const supabase = createClient();
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/confirm?next=/auth/update-password`,
+    });
+
+    setLoading(false);
+    if (err) {
+      setError(err.message);
+    } else {
+      setSent(true);
+    }
+  }
+
+  if (sent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-10 w-full max-w-md text-center">
@@ -49,7 +70,7 @@ export default function ForgotPasswordPage() {
           </p>
         </div>
 
-        <form action={action} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
               Email address
@@ -61,22 +82,24 @@ export default function ForgotPasswordPage() {
               required
               autoComplete="email"
               placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className={inputCls}
             />
           </div>
 
-          {state?.error && (
+          {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {state.error}
+              {error}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={isPending}
+            disabled={loading}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
           >
-            {isPending ? "Sending…" : "Send reset link"}
+            {loading ? "Sending…" : "Send reset link"}
           </button>
         </form>
       </div>
