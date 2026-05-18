@@ -12,6 +12,7 @@ const TrainerCohortSchema = z.object({
   name:                    z.string().min(1, "Name is required"),
   code_name:               z.string().optional(),
   level:                   z.enum(["practitioner", "associate", "devops"]),
+  exam_type:               z.enum(["CCP", "SAA-C03", "DVA-C02", "SAP-C02", "DOP-C02"]).optional(),
   institution:             z.string().optional(),
   start_date:              z.string().min(1, "Start date is required"),
   training_weeks:          z.coerce.number().int().min(1).max(52),
@@ -119,6 +120,7 @@ export async function createCohort(
     name:                   formData.get("name"),
     code_name:              formData.get("code_name") || undefined,
     level:                  formData.get("level"),
+    exam_type:              formData.get("exam_type") || undefined,
     institution:            formData.get("institution") || undefined,
     start_date:             formData.get("start_date"),
     training_weeks:         formData.get("training_weeks"),
@@ -143,6 +145,7 @@ export async function createCohort(
       name:                   data.name,
       code_name:              data.code_name ?? null,
       level:                  data.level,
+      exam_type:              data.exam_type ?? null,
       platform:               PLATFORM_MAP[data.level],
       institution:            data.institution ?? null,
       start_date:             data.start_date,
@@ -309,6 +312,45 @@ export async function reassignCohortOwner(
 }
 
 // ── Update cohort code name ───────────────────────────────────────────────
+
+export async function updateCohortExamType(
+  cohortId: string,
+  examType: string | null
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+
+  if (profile?.role !== "super_admin") {
+    const { data: access } = await supabase
+      .from("cohort_access")
+      .select("role")
+      .eq("cohort_id", cohortId)
+      .eq("trainer_id", user.id)
+      .maybeSingle();
+    if (!access) return { error: "Not authorised" };
+  }
+
+  const VALID = ["CCP", "SAA-C03", "DVA-C02", "SAP-C02", "DOP-C02"] as const;
+  type ExamType = typeof VALID[number];
+  const value = examType && (VALID as readonly string[]).includes(examType)
+    ? examType as ExamType
+    : null;
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("cohorts")
+    .update({ exam_type: value })
+    .eq("id", cohortId);
+
+  if (error) return { error: error.message };
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return { success: true };
+}
 
 export async function updateCohortCodeName(
   cohortId: string,

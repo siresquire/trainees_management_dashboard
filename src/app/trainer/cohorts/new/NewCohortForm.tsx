@@ -1,10 +1,21 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createCohort } from "@/actions/cohorts";
 import Link from "next/link";
 
 type StaffMember = { id: string; full_name: string; role: string };
+
+const EXAM_TYPE_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  associate: [
+    { value: "SAA-C03", label: "SAA-C03 (Solutions Architect Associate)" },
+    { value: "DVA-C02", label: "DVA-C02 (Developer Associate)" },
+  ],
+  devops: [
+    { value: "SAP-C02", label: "SAP-C02 (Solutions Architect Professional)" },
+    { value: "DOP-C02", label: "DOP-C02 (DevOps Engineer Professional)" },
+  ],
+};
 
 export default function NewCohortForm({
   backHref = "/trainer/dashboard",
@@ -16,8 +27,10 @@ export default function NewCohortForm({
   role?: string;
 }) {
   const [state, action, isPending] = useActionState(createCohort, null);
+  const [selectedLevel, setSelectedLevel] = useState("");
   const showAssign = assignableStaff && assignableStaff.length > 0;
   const isQC = role === "quiz_creator";
+  const examTypeOptions = EXAM_TYPE_OPTIONS[selectedLevel] ?? null;
 
   return (
     <div className="p-4 md:p-8 max-w-2xl">
@@ -114,13 +127,35 @@ export default function NewCohortForm({
             </Field>
 
             <Field label="Training level" name="level" error={state?.errors?.level?.[0]}>
-              <select name="level" required className={inputCls} defaultValue="">
+              <select
+                name="level"
+                required
+                className={inputCls}
+                defaultValue=""
+                onChange={(e) => setSelectedLevel(e.target.value)}
+              >
                 <option value="" disabled>Select level…</option>
                 <option value="practitioner">Practitioner (Canvas)</option>
                 <option value="associate">Associate (Whizlabs)</option>
                 <option value="devops">DevOps NSP</option>
               </select>
             </Field>
+
+            {examTypeOptions && (
+              <Field
+                label="Target exam"
+                name="exam_type"
+                hint="Which AWS certification exam this cohort is preparing for"
+                error={state?.errors?.exam_type?.[0]}
+              >
+                <select name="exam_type" required className={inputCls} defaultValue="">
+                  <option value="" disabled>Select exam…</option>
+                  {examTypeOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             <Field label="Start date" name="start_date" error={state?.errors?.start_date?.[0]}>
               <input name="start_date" type="date" required className={inputCls} />

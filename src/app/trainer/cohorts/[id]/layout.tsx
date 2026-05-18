@@ -4,6 +4,7 @@ import Link from "next/link";
 import StatusMenu from "./StatusMenu";
 import ReassignOwnerForm from "./ReassignOwnerForm";
 import CodeNameForm from "./CodeNameForm";
+import ExamTypeForm from "./ExamTypeForm";
 
 const LEVEL_BADGE: Record<string, string> = {
   practitioner: "bg-blue-100 text-blue-700",
@@ -61,7 +62,7 @@ export default async function CohortLayout({
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("id, name, code_name, level, platform, start_date, training_weeks, exam_prep_weeks, status")
+    .select("id, name, code_name, level, platform, start_date, training_weeks, exam_prep_weeks, status, exam_type")
     .eq("id", id)
     .single();
   if (!cohort) notFound();
@@ -142,6 +143,10 @@ export default async function CohortLayout({
           {/* Code name edit (owner or SA) */}
           {(isOwner || isSuperAdmin) && (
             <CodeNameForm cohortId={id} current={cohort.code_name ?? null} />
+          )}
+          {/* Exam type edit (owner or SA; only for levels with multiple exam options) */}
+          {(isOwner || isSuperAdmin) && (cohort.level === "associate" || cohort.level === "devops") && (
+            <ExamTypeForm cohortId={id} level={cohort.level} current={cohort.exam_type ?? null} />
           )}
           {(assignedOwner || isSuperAdmin) && (
             <span className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
