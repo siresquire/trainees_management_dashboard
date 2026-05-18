@@ -3,11 +3,13 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = [
   "/login",
+  "/forgot-password",
   "/request-access",
   "/auth/callback",
   "/auth/confirm",
   "/auth/accept-invite",
-  "/quiz/take",   // magic-link quiz access
+  "/auth/update-password",
+  "/quiz/take",
 ];
 
 const ROLE_PREFIXES: Record<string, string[]> = {

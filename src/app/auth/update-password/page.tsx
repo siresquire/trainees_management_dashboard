@@ -1,58 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const inputCls =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent";
 
-type Step = "loading" | "set-password" | "saving" | "error";
-
-export default function AcceptInvitePage() {
-  const [step, setStep]           = useState<Step>("loading");
+export default function UpdatePasswordPage() {
   const [password, setPassword]   = useState("");
   const [confirm, setConfirm]     = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
+  const [error, setError]         = useState<string | null>(null);
+  const [saving, setSaving]       = useState(false);
   const router = useRouter();
-
-  useEffect(() => {
-    const params      = new URLSearchParams(window.location.hash.substring(1));
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-
-    if (!accessToken || !refreshToken) { setStep("error"); return; }
-
-    const supabase = createClient();
-    supabase.auth
-      .setSession({ access_token: accessToken, refresh_token: refreshToken })
-      .then(({ data: { session }, error }) => {
-        if (error || !session) { setStep("error"); return; }
-        setStep("set-password");
-      })
-      .catch(() => setStep("error"));
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setFormError(null);
+    setError(null);
 
     if (password.length < 8) {
-      setFormError("Password must be at least 8 characters.");
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirm) {
-      setFormError("Passwords do not match.");
+      setError("Passwords do not match.");
       return;
     }
 
-    setStep("saving");
+    setSaving(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error: updateErr } = await supabase.auth.updateUser({ password });
 
-    if (error) {
-      setFormError(error.message);
-      setStep("set-password");
+    if (updateErr) {
+      setError(updateErr.message);
+      setSaving(false);
       return;
     }
 
@@ -74,28 +55,6 @@ export default function AcceptInvitePage() {
     router.replace(dest);
   }
 
-  if (step === "error") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center space-y-3">
-          <p className="text-sm text-red-600 font-medium">Invite link is invalid or has expired.</p>
-          <a href="/login" className="text-sm text-orange-600 hover:underline">Back to login</a>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-slate-500">Verifying your invite…</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-10">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-10 w-full max-w-md">
@@ -103,13 +62,13 @@ export default function AcceptInvitePage() {
           <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center mx-auto mb-4">
             <span className="text-white font-bold text-lg">A</span>
           </div>
-          <h1 className="text-xl font-bold text-slate-900">Set your password</h1>
-          <p className="text-slate-500 text-sm mt-1">Create a password to secure your account</p>
+          <h1 className="text-xl font-bold text-slate-900">Set new password</h1>
+          <p className="text-slate-500 text-sm mt-1">Choose a new password for your account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">New password</label>
             <input
               type="password"
               value={password}
@@ -134,18 +93,18 @@ export default function AcceptInvitePage() {
             />
           </div>
 
-          {formError && (
+          {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {formError}
+              {error}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={step === "saving"}
+            disabled={saving}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
           >
-            {step === "saving" ? "Setting password…" : "Set password & continue"}
+            {saving ? "Saving…" : "Save new password"}
           </button>
         </form>
       </div>
