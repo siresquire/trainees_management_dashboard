@@ -1,0 +1,50 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - ENCRYPTION_SECRET=${ENCRYPTION_SECRET}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}
+    env_file:
+      - .env.local
+    depends_on:
+      - supabase-db
+    networks:
+      - app-network
+
+  # Supabase local stack is managed separately via `supabase start`
+  # This placeholder keeps the compose file self-documenting
+  supabase-db:
+    image: supabase/postgres:15.6.1.143
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  supabase-db-data:
+
+networks:
+  app-network:
+    driver: bridge

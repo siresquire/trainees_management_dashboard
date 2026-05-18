@@ -1,0 +1,1 @@
+select id, full_name, role from public.profiles where id = '4af7af18-3fb7-4753-ab2c-69f225ecf844';

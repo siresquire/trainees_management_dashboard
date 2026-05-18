@@ -4,7 +4,28 @@
       "Bash(python -c ' *)",
       "Bash(npm --version)",
       "Bash(npx create-next-app@latest . --typescript --eslint --tailwind --app --src-dir --import-alias \"@/*\" --no-turbopack --yes)",
-      "Bash(move architecture.html ..\\\\architecture.html)"
+      "Bash(move architecture.html ..\\\\architecture.html)",
+      "Bash(npm install *)",
+      "Bash(npx supabase *)",
+      "Bash(npm run *)",
+      "Bash(mkdir -p \"/c/Users/user/Documents/trainees_dashboard/src/app/trainer/cohorts/[id]/canvas\")",
+      "Bash(mkdir -p \"/c/Users/user/Documents/trainees_dashboard/src/app/trainer/cohorts/[id]/tasks\")",
+      "Bash(npm list *)",
+      "Bash(psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c ' *)",
+      "Bash(node -e \"const { createClient } = require\\('@supabase/supabase-js'\\); const c = createClient\\('http://127.0.0.1:54321', 'sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz'\\); console.log\\('admin available:', typeof c.auth.admin\\);\")",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c \"import sys,json; c=json.load\\(sys.stdin\\); env=[e for e in c[0]['Config']['Env'] if 'SMTP' in e or 'MAIL' in e]; print\\('\\\\n'.join\\(env\\)\\)\")",
+      "Bash(node -e \"let d=''; process.stdin.on\\('data',c=>d+=c\\); process.stdin.on\\('end',\\(\\)=>{ const c=JSON.parse\\(d\\); const env=c[0].Config.Env.filter\\(e=>e.includes\\('SMTP'\\)||e.includes\\('MAIL'\\)\\); console.log\\(env.join\\('\\\\n'\\)\\); }\\)\")",
+      "Bash(node -e \"require\\('@supabase/supabase-js'\\); console.log\\('available'\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"BUILD_EXIT:$?\")",
+      "Bash(Test-Path \"C:\\\\Users\\\\user\\\\Documents\\\\trainees_dashboard\\\\src\\\\actions\\\\trainees.ts\")",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"C:\\\\Users\\\\user\\\\Documents\\\\trainees_dashboard\\\\src\\\\app\\\\api\\\\templates\\\\associate-tasks\")",
+      "Bash(docker --version)",
+      "Bash(docker info *)",
+      "Bash(docker image *)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\user\\\\Documents\\\\trainees_dashboard\\\\src\\\\app\\\\trainer\\\\cohorts\")"
     ]
   }
 }
