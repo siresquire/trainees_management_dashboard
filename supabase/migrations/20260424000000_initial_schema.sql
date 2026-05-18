@@ -1,5 +1,5 @@
--- =============================================================
--- Amalitech Trainees Dashboard — Initial Schema
+﻿-- =============================================================
+-- Amalitech Trainees Dashboard â€” Initial Schema
 -- =============================================================
 -- Enable required extensions
 create extension if not exists "uuid-ossp";
@@ -46,7 +46,7 @@ create table profiles (
 );
 
 -- =============================================================
--- AUDIT LOG (immutable — no update/delete permitted via RLS)
+-- AUDIT LOG (immutable â€” no update/delete permitted via RLS)
 -- =============================================================
 create table audit_logs (
   id          bigserial primary key,
@@ -64,7 +64,7 @@ create table audit_logs (
 -- COHORTS
 -- =============================================================
 create table cohorts (
-  id                         uuid primary key default uuid_generate_v4(),
+  id                         uuid primary key default gen_random_uuid(),
   name                       text not null,
   level                      cohort_level not null,
   platform                   cohort_platform not null,
@@ -90,7 +90,7 @@ create table cohorts (
 -- COHORT ACCESS (sharing between trainers)
 -- =============================================================
 create table cohort_access (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   cohort_id   uuid not null references cohorts(id) on delete cascade,
   trainer_id  uuid not null references auth.users(id) on delete cascade,
   role        cohort_access_role not null default 'trainer',
@@ -104,7 +104,7 @@ create table cohort_access (
 -- TRAINEES
 -- =============================================================
 create table trainees (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   cohort_id           uuid not null references cohorts(id) on delete cascade,
   full_name           text not null,
   personal_email      text not null,
@@ -127,7 +127,7 @@ create table trainees (
 -- CURRICULUM TEMPLATES (global KC/Lab week mapping)
 -- =============================================================
 create table curriculum_templates (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   name         text not null,
   level        cohort_level not null,
   platform     cohort_platform not null,
@@ -138,7 +138,7 @@ create table curriculum_templates (
 );
 
 create table template_tasks (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   template_id   uuid not null references curriculum_templates(id) on delete cascade,
   week_number   integer not null check (week_number >= 0),
   task_name     text not null,
@@ -151,7 +151,7 @@ create table template_tasks (
 -- COHORT WEEK TASKS (per-cohort, copied from template, editable)
 -- =============================================================
 create table cohort_week_tasks (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   cohort_id             uuid not null references cohorts(id) on delete cascade,
   week_number           integer not null check (week_number >= 0),
   task_name             text not null,
@@ -166,7 +166,7 @@ create table cohort_week_tasks (
 -- COMPLETIONS (KC scores + Lab completions)
 -- =============================================================
 create table completions (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   trainee_id   uuid not null references trainees(id) on delete cascade,
   task_id      uuid not null references cohort_week_tasks(id) on delete cascade,
   score        numeric(6,2),                                 -- 0-100 for KC, null for lab
@@ -181,7 +181,7 @@ create table completions (
 -- SESSIONS (Zoom / Teams meetings)
 -- =============================================================
 create table sessions (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   cohort_id           uuid not null references cohorts(id) on delete cascade,
   platform            session_platform not null,
   topic               text not null,
@@ -199,7 +199,7 @@ create table sessions (
 -- ATTENDANCE
 -- =============================================================
 create table attendance (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   session_id            uuid not null references sessions(id) on delete cascade,
   trainee_id            uuid not null references trainees(id) on delete cascade,
   duration_mins         integer not null default 0,
@@ -216,7 +216,7 @@ create table attendance (
 -- TEAMS CHAT RECORDS (DevOps)
 -- =============================================================
 create table teams_chats (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   session_id   uuid not null references sessions(id) on delete cascade,
   raw_content  text,
   ai_summary   text,
@@ -224,7 +224,7 @@ create table teams_chats (
 );
 
 create table teams_chat_analysis (
-  id                      uuid primary key default uuid_generate_v4(),
+  id                      uuid primary key default gen_random_uuid(),
   session_id              uuid not null references sessions(id) on delete cascade,
   trainee_id              uuid not null references trainees(id) on delete cascade,
   message_count           integer not null default 0,
@@ -242,7 +242,7 @@ create table teams_chat_analysis (
 -- EXAM PREP
 -- =============================================================
 create table exam_quizzes (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   cohort_id       uuid not null references cohorts(id) on delete cascade,
   quiz_name       text not null,
   source_platform text not null default 'built_in',          -- built_in | google_forms | ms_forms | kahoot | other
@@ -253,7 +253,7 @@ create table exam_quizzes (
 );
 
 create table exam_scores (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   trainee_id   uuid not null references trainees(id) on delete cascade,
   quiz_id      uuid not null references exam_quizzes(id) on delete cascade,
   attempt_no   integer not null default 1,
@@ -266,7 +266,7 @@ create table exam_scores (
 -- VOUCHERS & EXAM OUTCOMES
 -- =============================================================
 create table vouchers (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   trainee_id    uuid not null references trainees(id) on delete cascade,
   exam_type     exam_type not null,
   issued_date   date not null,
@@ -276,7 +276,7 @@ create table vouchers (
 );
 
 create table exam_outcomes (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   trainee_id   uuid not null references trainees(id) on delete cascade,
   voucher_id   uuid references vouchers(id),
   exam_type    exam_type not null,
@@ -292,7 +292,7 @@ create table exam_outcomes (
 -- DEVOPS PHASES & LABS
 -- =============================================================
 create table devops_phases (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   cohort_id    uuid not null references cohorts(id) on delete cascade,
   phase_number integer not null,
   name         text not null,
@@ -304,7 +304,7 @@ create table devops_phases (
 );
 
 create table devops_labs (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   phase_id     uuid not null references devops_phases(id) on delete cascade,
   lab_name     text not null,
   platform     devops_lab_platform not null default 'kodekloud',
@@ -314,7 +314,7 @@ create table devops_labs (
 );
 
 create table devops_lab_completions (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   trainee_id      uuid not null references trainees(id) on delete cascade,
   lab_id          uuid not null references devops_labs(id) on delete cascade,
   score           numeric(6,2),
@@ -328,7 +328,7 @@ create table devops_lab_completions (
 -- DEVOPS PROJECTS
 -- =============================================================
 create table devops_projects (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   phase_id      uuid not null references devops_phases(id) on delete cascade,
   project_name  text not null,
   description   text,
@@ -338,7 +338,7 @@ create table devops_projects (
 );
 
 create table devops_project_submissions (
-  id                uuid primary key default uuid_generate_v4(),
+  id                uuid primary key default gen_random_uuid(),
   trainee_id        uuid not null references trainees(id) on delete cascade,
   project_id        uuid not null references devops_projects(id) on delete cascade,
   github_url        text,
@@ -356,7 +356,7 @@ create table devops_project_submissions (
 -- DEVOPS TRAINER ASSESSMENTS
 -- =============================================================
 create table devops_assessments (
-  id                   uuid primary key default uuid_generate_v4(),
+  id                   uuid primary key default gen_random_uuid(),
   trainee_id           uuid not null references trainees(id) on delete cascade,
   phase_id             uuid not null references devops_phases(id) on delete cascade,
   technical_score      numeric(4,2) check (technical_score between 0 and 10),
@@ -373,7 +373,7 @@ create table devops_assessments (
 -- DEVOPS PHASE REPORTS
 -- =============================================================
 create table devops_phase_reports (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   phase_id      uuid not null references devops_phases(id) on delete cascade,
   notes         text,
   generated_by  uuid references auth.users(id),
@@ -381,7 +381,7 @@ create table devops_phase_reports (
 );
 
 create table devops_phase_rankings (
-  id                uuid primary key default uuid_generate_v4(),
+  id                uuid primary key default gen_random_uuid(),
   report_id         uuid not null references devops_phase_reports(id) on delete cascade,
   trainee_id        uuid not null references trainees(id) on delete cascade,
   rank              integer not null,
@@ -392,7 +392,7 @@ create table devops_phase_rankings (
 );
 
 create table devops_outcomes (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   trainee_id   uuid not null references trainees(id) on delete cascade,
   outcome      devops_outcome not null,
   outcome_date date,
@@ -405,7 +405,7 @@ create table devops_outcomes (
 -- QUESTION BANKS & QUESTIONS
 -- =============================================================
 create table question_banks (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   name         text not null,
   description  text,
   level        cohort_level,
@@ -417,7 +417,7 @@ create table question_banks (
 );
 
 create table questions (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   bank_id         uuid not null references question_banks(id) on delete cascade,
   question_text   text not null,
   question_type   quiz_question_type not null,
@@ -440,7 +440,7 @@ create table questions (
 -- QUIZ ASSIGNMENTS (quiz assigned to a cohort or class)
 -- =============================================================
 create table quiz_assignments (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   bank_id               uuid not null references question_banks(id),
   cohort_id             uuid references cohorts(id) on delete cascade,
   quizdesk_class_id     uuid,                               -- FK added after QuizDesk tables
@@ -466,7 +466,7 @@ create table quiz_assignments (
 );
 
 create table quiz_attempts (
-  id               uuid primary key default uuid_generate_v4(),
+  id               uuid primary key default gen_random_uuid(),
   assignment_id    uuid not null references quiz_assignments(id) on delete cascade,
   trainee_id       uuid references trainees(id) on delete cascade,
   quizdesk_student_id uuid,                                 -- FK added after QuizDesk tables
@@ -488,7 +488,7 @@ create table quiz_attempts (
 );
 
 create table quiz_answers (
-  id               uuid primary key default uuid_generate_v4(),
+  id               uuid primary key default gen_random_uuid(),
   attempt_id       uuid not null references quiz_attempts(id) on delete cascade,
   question_id      uuid not null references questions(id),
   selected_options text[],
@@ -502,7 +502,7 @@ create table quiz_answers (
 );
 
 create table quiz_violations (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   attempt_id     uuid not null references quiz_attempts(id) on delete cascade,
   violation_type quiz_violation_type not null,
   strike_no      integer,
@@ -511,10 +511,10 @@ create table quiz_violations (
 );
 
 -- =============================================================
--- QUIZDESK — STANDALONE MODULE
+-- QUIZDESK â€” STANDALONE MODULE
 -- =============================================================
 create table quizdesk_organizations (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   name          text not null,
   institution   text,
   owner_id      uuid not null references auth.users(id),
@@ -523,7 +523,7 @@ create table quizdesk_organizations (
 );
 
 create table quizdesk_classes (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   org_id      uuid not null references quizdesk_organizations(id) on delete cascade,
   name        text not null,
   description text,
@@ -532,7 +532,7 @@ create table quizdesk_classes (
 );
 
 create table quizdesk_students (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   class_id     uuid not null references quizdesk_classes(id) on delete cascade,
   full_name    text not null,
   email        text not null,
@@ -555,7 +555,7 @@ alter table quiz_attempts
 -- USAGE LIMITS & WAIVERS
 -- =============================================================
 create table usage_limits (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   owner_id            uuid not null references auth.users(id) on delete cascade unique,
   max_quiz_takers     integer not null default 30,
   is_waived           boolean not null default false,
@@ -566,7 +566,7 @@ create table usage_limits (
 );
 
 create table waiver_requests (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   requester_id  uuid not null references auth.users(id),
   reason        text not null,
   status        waiver_status not null default 'pending',
@@ -580,7 +580,7 @@ create table waiver_requests (
 -- PREDICTION SNAPSHOTS
 -- =============================================================
 create table prediction_snapshots (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   trainee_id            uuid not null references trainees(id) on delete cascade,
   snapshot_date         date not null default current_date,
   dropout_risk_score    numeric(5,2),
@@ -594,7 +594,7 @@ create table prediction_snapshots (
 );
 
 create table devops_readiness_snapshots (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   trainee_id            uuid not null references trainees(id) on delete cascade,
   snapshot_date         date not null default current_date,
   technical_score       numeric(5,2),
@@ -611,7 +611,7 @@ create table devops_readiness_snapshots (
 -- BADGES
 -- =============================================================
 create table badges (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   name        text not null unique,
   description text,
   icon        text,
@@ -619,7 +619,7 @@ create table badges (
 );
 
 create table trainee_badges (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   trainee_id  uuid not null references trainees(id) on delete cascade,
   badge_id    uuid not null references badges(id),
   awarded_at  timestamptz not null default now(),

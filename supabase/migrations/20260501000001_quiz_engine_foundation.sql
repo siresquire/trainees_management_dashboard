@@ -1,33 +1,33 @@
--- =============================================================
+﻿-- =============================================================
 -- Phase 7a: Quiz Engine Foundation
 -- =============================================================
 
--- ── 1. Extend quiz_question_type enum ────────────────────────────────────────
+-- â”€â”€ 1. Extend quiz_question_type enum â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 alter type quiz_question_type add value if not exists 'code_input';
 
--- ── 2. cohorts: index-number toggle ──────────────────────────────────────────
+-- â”€â”€ 2. cohorts: index-number toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 alter table cohorts
   add column if not exists has_index_numbers boolean not null default false;
 
--- ── 3. trainees: index / matriculation number ─────────────────────────────────
+-- â”€â”€ 3. trainees: index / matriculation number â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 alter table trainees
   add column if not exists index_number text;
 
--- ── 4. quiz_attempts: strike counter + outcome flags ─────────────────────────
+-- â”€â”€ 4. quiz_attempts: strike counter + outcome flags â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 alter table quiz_attempts
   add column if not exists warning_count  integer not null default 0,
   add column if not exists retake_blocked boolean not null default false,
   add column if not exists terminated     boolean not null default false;
 
--- ── 5. quiz_assignments: optional per-question timer ─────────────────────────
+-- â”€â”€ 5. quiz_assignments: optional per-question timer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 --      Distinct from eye_away_warn_secs which is anti-cheat.
 --      null = no per-question limit; >0 = seconds per question.
 alter table quiz_assignments
   add column if not exists per_question_secs integer;
 
--- ── 6. webcam_snapshots ───────────────────────────────────────────────────────
+-- â”€â”€ 6. webcam_snapshots â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 create table if not exists webcam_snapshots (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   attempt_id   uuid not null references quiz_attempts(id) on delete cascade,
   storage_path text not null,           -- Supabase Storage object path
   captured_at  timestamptz not null default now(),
@@ -35,10 +35,10 @@ create table if not exists webcam_snapshots (
   flag_reason  text
 );
 
--- ── 7. quiz_notifications ─────────────────────────────────────────────────────
+-- â”€â”€ 7. quiz_notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 --      In-app + email notification log.  One row = one event fired.
 create table if not exists quiz_notifications (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   recipient_id  uuid not null references auth.users(id) on delete cascade,
   attempt_id    uuid references quiz_attempts(id) on delete set null,
   type          text not null,          -- 'warning', 'lockout', 'auto_submit', 'grade_ready'
@@ -52,9 +52,9 @@ create table if not exists quiz_notifications (
 create index if not exists quiz_notifications_recipient_idx
   on quiz_notifications(recipient_id, is_read, created_at desc);
 
--- ── 8. question_bank_shares ───────────────────────────────────────────────────
+-- â”€â”€ 8. question_bank_shares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 create table if not exists question_bank_shares (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   bank_id      uuid not null references question_banks(id) on delete cascade,
   shared_with  uuid not null references auth.users(id) on delete cascade,
   shared_by    uuid not null references auth.users(id) on delete cascade,
@@ -63,7 +63,7 @@ create table if not exists question_bank_shares (
   unique (bank_id, shared_with)
 );
 
--- ── RLS ───────────────────────────────────────────────────────────────────────
+-- â”€â”€ RLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 alter table webcam_snapshots     enable row level security;
 alter table quiz_notifications   enable row level security;
@@ -123,7 +123,7 @@ create policy "question_bank_shares: shared user reads" on question_bank_shares
   for select to authenticated
   using (shared_with = auth.uid() or is_super_admin());
 
--- ── Update question_banks policy to include shares ────────────────────────────
+-- â”€â”€ Update question_banks policy to include shares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- Drop the narrow read policy and replace with one that includes shares.
 drop policy if exists "question_banks: trainer reads own and public" on question_banks;
 
@@ -139,7 +139,7 @@ create policy "question_banks: reads" on question_banks
     )
   );
 
--- ── Update questions policy to include shares ─────────────────────────────────
+-- â”€â”€ Update questions policy to include shares â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 drop policy if exists "questions: bank access" on questions;
 
 create policy "questions: reads" on questions
@@ -180,7 +180,7 @@ create policy "questions: manages" on questions
     )
   );
 
--- ── Grants ────────────────────────────────────────────────────────────────────
+-- â”€â”€ Grants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 grant select, insert, update, delete on webcam_snapshots     to authenticated;
 grant select, insert, update         on quiz_notifications    to authenticated;
 grant select, insert, update, delete on question_bank_shares  to authenticated;
