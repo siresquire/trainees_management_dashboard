@@ -87,13 +87,13 @@ type Outcome = {
 
 const EXAM_TYPES = ["CCP", "SAA-C03", "DVA-C02", "SAP-C02", "DOP-C02"] as const;
 
-// Minimum passing score (out of 1000) per exam type
+// Internal pass bar (out of 1000) — set above AWS minimums to push cohort readiness higher
 const PASS_THRESHOLD: Record<string, number> = {
-  "CCP":     700,
-  "SAA-C03": 720,
-  "DVA-C02": 720,
-  "SAP-C02": 750,
-  "DOP-C02": 750,
+  "CCP":     800,
+  "SAA-C03": 800,
+  "DVA-C02": 800,
+  "SAP-C02": 800,
+  "DOP-C02": 800,
 };
 
 // Default exam type per cohort level
@@ -150,14 +150,14 @@ function heuristicPrediction(avgPct: number | null, thresholdPct: number) {
     return { label: "No data",    detail: "No quiz scores available",                              color: "text-slate-400",  bar: 0,  source: "heuristic" as const };
   const gap = avgPct - thresholdPct;
   if (gap >= 15)
-    return { label: "Very likely", detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)}pp above threshold`, color: "text-green-600",   bar: 90, source: "heuristic" as const };
+    return { label: "Very likely", detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)} percentage points above threshold`, color: "text-green-600",   bar: 90, source: "heuristic" as const };
   if (gap >= 5)
-    return { label: "Likely",      detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)}pp above threshold`, color: "text-emerald-600", bar: 70, source: "heuristic" as const };
+    return { label: "Likely",      detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)} percentage points above threshold`, color: "text-emerald-600", bar: 70, source: "heuristic" as const };
   if (gap >= -5)
-    return { label: "Borderline",  detail: `${avgPct.toFixed(1)}% avg — within 5pp of threshold`,             color: "text-amber-600",  bar: 50, source: "heuristic" as const };
+    return { label: "Borderline",  detail: `${avgPct.toFixed(1)}% avg — within 5 percentage points of threshold`,             color: "text-amber-600",  bar: 50, source: "heuristic" as const };
   if (gap >= -15)
-    return { label: "At risk",     detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)}pp below threshold`, color: "text-orange-600", bar: 30, source: "heuristic" as const };
-  return   { label: "Unlikely",   detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)}pp below threshold`, color: "text-red-600",    bar: 12, source: "heuristic" as const };
+    return { label: "At risk",     detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)} percentage points below threshold`, color: "text-orange-600", bar: 30, source: "heuristic" as const };
+  return   { label: "Unlikely",   detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)} percentage points below threshold`, color: "text-red-600",    bar: 12, source: "heuristic" as const };
 }
 
 /** Regression-based prediction — preferred when model is available */
@@ -247,7 +247,7 @@ export default function ExamsClient({
 
   // Resolved exam type for this cohort (for analytics threshold)
   const resolvedExamType = cohortExamType ?? LEVEL_TO_EXAM[cohortLevel] ?? "CCP";
-  const thresholdPct = ((PASS_THRESHOLD[resolvedExamType] ?? 700) / 1000) * 100;
+  const thresholdPct = ((PASS_THRESHOLD[resolvedExamType] ?? 800) / 1000) * 100;
 
   // ── Pre-computed maps ────────────────────────────────────────────────────────
 
@@ -1594,7 +1594,7 @@ export default function ExamsClient({
                         {needsHelp.length} trainee{needsHelp.length !== 1 ? "s" : ""}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Scoring &gt;10pp below threshold
+                        Scoring &gt;10 percentage points below threshold
                         {needsHelp.length <= 3 && ": " + needsHelp.map((t) => t.full_name.split(" ")[0]).join(", ")}
                       </p>
                     </>
