@@ -132,6 +132,7 @@ export default async function ExamsPage({
         .select("trainee_id, quiz_id, score, attempt_no")
         .in("quiz_id", allQuizIds)
         .in("trainee_id", labelledTraineeIds)
+        .limit(100000)
     : { data: [] };
 
   // 5. Tasks per cohort (to know totals for completion rates)
@@ -153,6 +154,7 @@ export default async function ExamsPage({
         .select("trainee_id, task_id")
         .in("trainee_id", completionTargetIds)
         .in("task_id", allTaskIds)
+        .limit(100000)
     : { data: [] };
 
   // ── Pre-compute lookup structures ────────────────────────────────────────────
