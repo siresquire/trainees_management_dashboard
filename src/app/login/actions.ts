@@ -1,23 +1,17 @@
 "use server";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import { createServiceClient } from "@/lib/supabase/server";
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+export type LoginState = { error?: string; dest?: string } | null;
 
-export type LoginState = { error?: string; success?: boolean } | null;
-
-// ── Staff login (Trainer / QC / Super Admin) ──────────────────────────────
-
-export async function signInStaff(
+// ── Staff: validate only (auth happens client-side) ───────────────────────
+export async function validateStaff(
   _prev: LoginState,
   formData: FormData
 ): Promise<LoginState> {
-  const email    = (formData.get("email")    as string)?.trim().toLowerCase();
-  const password = (formData.get("password") as string);
+  const email = (formData.get("email") as string)?.trim().toLowerCase();
 
-  if (!email)    return { error: "Email address is required." };
-  if (!password) return { error: "Password is required." };
+  if (!email) return { error: "Email address is required." };
 
   const svc = createServiceClient();
   const { data: rows, error: rpcErr } = await svc.rpc("get_profile_by_email", { p_email: email });
@@ -31,30 +25,20 @@ export async function signInStaff(
     return { error: "This login is for staff only. If you're a trainee, use the Trainee tab." };
   }
 
-  const supabase = await createClient();
-  const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (signInErr) {
-    return { error: "Incorrect password. Use \"Forgot password?\" below to reset it." };
-  }
-
   const dest = profile.role === "super_admin" ? "/superadmin/dashboard" : "/trainer/dashboard";
-  redirect(dest);
+  return { dest };
 }
 
-// ── Trainee login ─────────────────────────────────────────────────────────
-
-export async function signInTrainee(
+// ── Trainee: validate only (auth happens client-side) ─────────────────────
+export async function validateTrainee(
   _prev: LoginState,
   formData: FormData
 ): Promise<LoginState> {
   const cohortId = (formData.get("cohort_id") as string)?.trim();
-  const email    = (formData.get("email")    as string)?.trim().toLowerCase();
-  const password = (formData.get("password") as string);
+  const email    = (formData.get("email")     as string)?.trim().toLowerCase();
 
   if (!cohortId) return { error: "Please select your cohort." };
   if (!email)    return { error: "Email address is required." };
-  if (!password) return { error: "Password is required." };
 
   const svc = createServiceClient();
   const { data: trainee } = await svc
@@ -74,30 +58,19 @@ export async function signInTrainee(
     return { error: "Your account hasn't been set up yet. Ask your trainer to send you an invitation." };
   }
 
-  const supabase = await createClient();
-  const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (signInErr) {
-    return { error: "Incorrect password. Use \"Forgot password?\" below to reset it." };
-  }
-
-  redirect("/trainee/dashboard");
+  return { dest: "/trainee/dashboard" };
 }
 
 // ── Password reset request ────────────────────────────────────────────────
+// (kept as server action — only sends email, no session involved)
+export type ResetState = { error?: string; success?: boolean } | null;
 
 export async function requestPasswordReset(
-  _prev: LoginState,
+  _prev: ResetState,
   formData: FormData
-): Promise<LoginState> {
+): Promise<ResetState> {
   const email = (formData.get("email") as string)?.trim().toLowerCase();
   if (!email) return { error: "Email address is required." };
-
-  const supabase = await createClient();
-  await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${appUrl}/auth/confirm?next=/auth/update-password`,
-  });
-
-  // Always succeed — don't reveal whether the email exists
+  // Actual reset is handled client-side in forgot-password/page.tsx
   return { success: true };
 }
