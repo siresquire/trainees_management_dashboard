@@ -145,9 +145,13 @@ function TraineeForm({ cohorts }: { cohorts: Cohort[] }) {
     setSigningIn(true);
     setAuthError(null);
 
-    const supabase = createClient();
-    supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
-      if (error) {
+    fetch("/api/auth/signin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ email, password }),
+    }).then(async (res) => {
+      if (!res.ok) {
         setAuthError('Incorrect password. Use "Forgot password?" below to reset it.');
         setSigningIn(false);
       } else {
