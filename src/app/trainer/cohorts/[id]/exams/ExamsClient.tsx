@@ -340,7 +340,7 @@ export default function ExamsClient({
     fd.append("scores_file", file);
     startTransition(async () => {
       const res = await uploadExamScoresFromFile(quizId, cohortId, fd);
-      if (res.error) { setUploadError(res.error); toast(res.error, "error"); return; }
+      if ("error" in res) { setUploadError(res.error ?? ""); toast(res.error ?? "Upload failed", "error"); return; }
       const msg = `Imported ${res.imported ?? 0} score${(res.imported ?? 0) !== 1 ? "s" : ""}` +
         (res.skipped ? ` · ${res.skipped} not matched` : "") + ".";
       setUploadResult(msg);
@@ -1537,132 +1537,7 @@ export default function ExamsClient({
             </div>
           </div>
 
-          {/* Per-trainee prediction table */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-700">Trainee Predictions</h3>
-              <span className="text-xs text-slate-400">
-                Target exam: <span className="font-medium text-slate-600">{resolvedExamType}</span>
-                {" · "}Pass threshold: <span className="font-medium text-slate-600">{Math.round(thresholdPct)}%</span>
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-20">Quiz Avg</th>
-                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Lab %</th>
-                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">KC %</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-36">Prediction</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[100px]">Confidence</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-32">Actual Outcome</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Detail</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {trainees
-                    .map((t) => {
-                      const pcts: number[] = [];
-                      for (const q of quizzes) {
-                        const best = bestScoreMap.get(`${t.id}:${q.id}`);
-                        if (best !== undefined) pcts.push((best / q.max_score) * 100);
-                      }
-                      const quizAvg = pcts.length
-                        ? pcts.reduce((a, b) => a + b, 0) / pcts.length
-                        : null;
-                      const feat    = featuresMap.get(t.id);
-                      const pred    = regressionPrediction(
-                        modelBundle,
-                        quizAvg,
-                        feat?.labRatePct ?? null,
-                        feat?.kcRatePct  ?? null,
-                        thresholdPct,
-                      );
-                      const tOutcomes     = outcomeMap.get(t.id) ?? [];
-                      const latestOutcome = tOutcomes.length ? tOutcomes[tOutcomes.length - 1] : null;
-                      return { t, quizAvg, pred, latestOutcome, feat };
-                    })
-                    .sort((a, b) => {
-                      if (a.quizAvg === null && b.quizAvg === null) return 0;
-                      if (a.quizAvg === null) return 1;
-                      if (b.quizAvg === null) return -1;
-                      return b.quizAvg - a.quizAvg;
-                    })
-                    .map(({ t, quizAvg, pred, latestOutcome, feat }) => (
-                      <tr key={t.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
-                        <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                        <td className="px-3 py-3 text-center tabular-nums">
-                          {quizAvg !== null ? (
-                            <span className={`text-sm font-semibold ${scoreTextColor(quizAvg)}`}>
-                              {quizAvg.toFixed(1)}%
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-300">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
-                          {feat?.labRatePct !== null && feat?.labRatePct !== undefined
-                            ? `${feat.labRatePct.toFixed(0)}%`
-                            : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
-                          {feat?.kcRatePct !== null && feat?.kcRatePct !== undefined
-                            ? `${feat.kcRatePct.toFixed(0)}%`
-                            : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-sm font-semibold ${pred.color}`}>{pred.label}</span>
-                            {pred.source !== "heuristic" && (
-                              <span className="text-[9px] font-medium text-violet-500 bg-violet-50 border border-violet-200 px-1 py-0.5 rounded uppercase tracking-wide">
-                                {pred.source}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 min-w-[70px]">
-                              <div
-                                className={`h-1.5 rounded-full transition-all ${
-                                  pred.bar >= 65 ? "bg-green-500"
-                                  : pred.bar >= 40 ? "bg-amber-400"
-                                  : "bg-red-400"
-                                }`}
-                                style={{ width: `${pred.bar}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-slate-400 tabular-nums w-7">{pred.bar}%</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {latestOutcome ? (
-                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                              latestOutcome.outcome === "passed" ? "bg-green-100 text-green-700"
-                              : latestOutcome.outcome === "failed" ? "bg-red-100 text-red-700"
-                              : "bg-amber-100 text-amber-700"
-                            }`}>
-                              {latestOutcome.outcome === "passed" ? "✓ Passed"
-                               : latestOutcome.outcome === "failed" ? "✗ Failed"
-                               : "⏳ Pending"}
-                              {latestOutcome.actual_score ? ` · ${latestOutcome.actual_score}` : ""}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-300">Not taken</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px]">{pred.detail}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Insight cards */}
+          {/* Insight cards — cohort summary shown first for quick overview */}
           {trainees.length > 0 && quizzes.length > 0 && (() => {
             const withData = trainees.filter((t) => {
               for (const q of quizzes) {
@@ -1728,6 +1603,148 @@ export default function ExamsClient({
               </div>
             );
           })()}
+
+          {/* Per-trainee prediction table */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-700">Trainee Predictions</h3>
+              <span className="text-xs text-slate-400">
+                Target exam: <span className="font-medium text-slate-600">{resolvedExamType}</span>
+                {" · "}Pass threshold: <span className="font-medium text-slate-600">{Math.round(thresholdPct)}%</span>
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-24">Quiz Avg</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Lab %</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">KC %</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-36">Prediction</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[100px]">Confidence</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-32">Actual Outcome</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Detail</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {trainees
+                    .map((t) => {
+                      const pcts: number[] = [];
+                      for (const q of quizzes) {
+                        const best = bestScoreMap.get(`${t.id}:${q.id}`);
+                        if (best !== undefined) pcts.push((best / q.max_score) * 100);
+                      }
+                      const quizzesAttempted = pcts.length;
+                      const quizCoverage     = quizzes.length > 0 ? quizzesAttempted / quizzes.length : 0;
+                      const quizAvg = pcts.length
+                        ? pcts.reduce((a, b) => a + b, 0) / pcts.length
+                        : null;
+                      const feat    = featuresMap.get(t.id);
+                      const pred    = regressionPrediction(
+                        modelBundle,
+                        quizAvg,
+                        feat?.labRatePct ?? null,
+                        feat?.kcRatePct  ?? null,
+                        thresholdPct,
+                      );
+                      const tOutcomes     = outcomeMap.get(t.id) ?? [];
+                      const latestOutcome = tOutcomes.length ? tOutcomes[tOutcomes.length - 1] : null;
+                      // Low coverage: scored on fewer than half the available quizzes
+                      const lowCoverage = quizzes.length > 1 && quizCoverage < 0.5;
+                      return { t, quizAvg, quizzesAttempted, lowCoverage, pred, latestOutcome, feat };
+                    })
+                    .sort((a, b) => {
+                      if (a.quizAvg === null && b.quizAvg === null) return 0;
+                      if (a.quizAvg === null) return 1;
+                      if (b.quizAvg === null) return -1;
+                      return b.quizAvg - a.quizAvg;
+                    })
+                    .map(({ t, quizAvg, quizzesAttempted, lowCoverage, pred, latestOutcome, feat }) => (
+                      <tr key={t.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
+                        <td className="px-3 py-3 text-center tabular-nums">
+                          {quizAvg !== null ? (
+                            <div>
+                              <span className={`text-sm font-semibold ${scoreTextColor(quizAvg)}`}>
+                                {quizAvg.toFixed(1)}%
+                              </span>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                {quizzesAttempted}/{quizzes.length} quizzes
+                                {lowCoverage && <span className="text-amber-500 ml-1">⚠</span>}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                          {feat?.labRatePct !== null && feat?.labRatePct !== undefined
+                            ? `${feat.labRatePct.toFixed(0)}%`
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                          {feat?.kcRatePct !== null && feat?.kcRatePct !== undefined
+                            ? `${feat.kcRatePct.toFixed(0)}%`
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-sm font-semibold ${pred.color}`}>{pred.label}</span>
+                            {pred.source !== "heuristic" && (
+                              <span className="text-[9px] font-medium text-violet-500 bg-violet-50 border border-violet-200 px-1 py-0.5 rounded uppercase tracking-wide">
+                                {pred.source}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 min-w-[70px]">
+                              <div
+                                className={`h-1.5 rounded-full transition-all ${
+                                  pred.bar >= 65 ? "bg-green-500"
+                                  : pred.bar >= 40 ? "bg-amber-400"
+                                  : "bg-red-400"
+                                }`}
+                                style={{ width: `${pred.bar}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-slate-400 tabular-nums w-7">{pred.bar}%</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {latestOutcome ? (
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                              latestOutcome.outcome === "passed" ? "bg-green-100 text-green-700"
+                              : latestOutcome.outcome === "failed" ? "bg-red-100 text-red-700"
+                              : "bg-amber-100 text-amber-700"
+                            }`}>
+                              {latestOutcome.outcome === "passed" ? "✓ Passed"
+                               : latestOutcome.outcome === "failed" ? "✗ Failed"
+                               : "⏳ Pending"}
+                              {latestOutcome.actual_score ? ` · ${latestOutcome.actual_score}` : ""}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-300">Not taken</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px]">
+                          {pred.detail}
+                          {lowCoverage && quizAvg !== null && (
+                            <span className="block text-amber-600 mt-0.5">
+                              ⚠ Only {quizzesAttempted} of {quizzes.length} quizzes taken — prediction may not reflect full readiness.
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {!quizzes.length && (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 py-14 text-center">
