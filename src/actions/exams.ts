@@ -998,7 +998,8 @@ export async function uploadExamScoresFromFile(
 
 // ── Manual single-cell score upsert ──────────────────────────────────────────
 // Used when a trainer edits an individual cell in the Score Matrix.
-// Inserts a new attempt so history is preserved; the matrix always shows best.
+// Updates the most recent attempt in-place (correction); inserts only when no
+// attempt exists yet (first entry for that trainee/quiz).
 
 export async function upsertExamScoreManual(
   quizId:    string,
@@ -1012,25 +1013,36 @@ export async function upsertExamScoreManual(
 
   const { data: existing } = await supabase
     .from("exam_scores")
-    .select("attempt_no")
+    .select("id, attempt_no")
     .eq("quiz_id", quizId)
     .eq("trainee_id", traineeId)
     .order("attempt_no", { ascending: false })
     .limit(1);
 
-  const nextAttempt = existing?.length ? (existing[0].attempt_no ?? 0) + 1 : 1;
+  let dbError;
 
-  const { error } = await supabase
-    .from("exam_scores")
-    .insert({
-      quiz_id:     quizId,
-      trainee_id:  traineeId,
-      score,
-      attempt_no:  nextAttempt,
-      uploaded_at: new Date().toISOString(),
-    });
+  if (existing?.length) {
+    // Correct the most recent attempt in-place
+    const { error } = await supabase
+      .from("exam_scores")
+      .update({ score, uploaded_at: new Date().toISOString() })
+      .eq("id", existing[0].id);
+    dbError = error;
+  } else {
+    // First score for this trainee/quiz — insert as attempt 1
+    const { error } = await supabase
+      .from("exam_scores")
+      .insert({
+        quiz_id:     quizId,
+        trainee_id:  traineeId,
+        score,
+        attempt_no:  1,
+        uploaded_at: new Date().toISOString(),
+      });
+    dbError = error;
+  }
 
-  if (error) return { error: error.message };
+  if (dbError) return { error: dbError.message };
   revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
   return { success: true };
 }

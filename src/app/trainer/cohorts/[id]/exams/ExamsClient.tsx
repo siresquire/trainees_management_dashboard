@@ -266,12 +266,20 @@ export default function ExamsClient({
 
   // ── Pre-computed maps ────────────────────────────────────────────────────────
 
-  // Best score per trainee per quiz (highest attempt)
+  // Best score per trainee per quiz (highest score) — used for analytics / matrix display
   const bestScoreMap = new Map<string, number>(); // `${traineeId}:${quizId}` → best score
+  // Latest score (highest attempt_no) — used to pre-fill the inline editor for corrections
+  const latestScoreMap = new Map<string, number>(); // `${traineeId}:${quizId}` → latest score
+  const latestAttemptMap = new Map<string, number>(); // `${traineeId}:${quizId}` → highest attempt_no seen
   for (const s of scores) {
-    const key  = `${s.trainee_id}:${s.quiz_id}`;
-    const prev = bestScoreMap.get(key);
-    if (prev === undefined || s.score > prev) bestScoreMap.set(key, s.score);
+    const key = `${s.trainee_id}:${s.quiz_id}`;
+    const prevBest = bestScoreMap.get(key);
+    if (prevBest === undefined || s.score > prevBest) bestScoreMap.set(key, s.score);
+    const prevAttempt = latestAttemptMap.get(key) ?? -1;
+    if (s.attempt_no > prevAttempt) {
+      latestAttemptMap.set(key, s.attempt_no);
+      latestScoreMap.set(key, s.score);
+    }
   }
 
   // Vouchers grouped by trainee
@@ -948,7 +956,8 @@ export default function ExamsClient({
                             trend = pct > p + 0.5 ? "up" : pct < p - 0.5 ? "down" : "flat";
                           }
                         }
-                        return { q, best, pct, trend };
+                        const latest = latestScoreMap.get(`${t.id}:${q.id}`);
+                        return { q, best, latest, pct, trend };
                       });
 
                       const pcts   = quizData.filter((d) => d.pct !== null).map((d) => d.pct as number);
@@ -961,7 +970,7 @@ export default function ExamsClient({
                         <tr key={t.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                           <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                          {quizData.map(({ q, best, pct, trend }) => {
+                          {quizData.map(({ q, best, latest, pct, trend }) => {
                             const isEditing = editingCell?.quizId === q.id && editingCell?.traineeId === t.id;
                             return (
                               <td
@@ -998,7 +1007,7 @@ export default function ExamsClient({
                                   </div>
                                 ) : (
                                   <button
-                                    onClick={() => startCellEdit(q.id, t.id, best)}
+                                    onClick={() => startCellEdit(q.id, t.id, latest)}
                                     className="w-full flex items-center justify-center gap-0.5 hover:bg-orange-50 rounded px-1 py-0.5 transition-colors"
                                   >
                                     {pct !== null ? (
