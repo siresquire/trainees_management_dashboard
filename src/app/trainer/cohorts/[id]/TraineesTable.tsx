@@ -166,7 +166,7 @@ export default function TraineesTable({
             </div>
             {selectedWeeks.length > 0 && (
               <span className="text-xs text-slate-400">
-                — showing wk {selectedWeeks.sort((a,b)=>a-b).join(", ")} only
+                — showing wk {[...selectedWeeks].sort((a,b)=>a-b).join(", ")} only
               </span>
             )}
           </div>
@@ -191,7 +191,7 @@ export default function TraineesTable({
                 <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Status</th>
                 {hasTasks && (
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[140px]">
-                    {selectedWeeks.length > 0 ? `Progress (wk ${selectedWeeks.sort((a,b)=>a-b).join("+")})` : "Progress"}
+                    {selectedWeeks.length > 0 ? `Progress (wk ${[...selectedWeeks].sort((a,b)=>a-b).join("+")})` : "Progress"}
                   </th>
                 )}
                 {totalSessions > 0 && (

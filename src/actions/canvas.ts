@@ -254,12 +254,12 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
     }
 
     const toInsert = valid.map((e, i) => ({
-      cohort_id:    cohortId,
-      full_name:    e.user!.name!,
+      cohort_id:      cohortId,
+      full_name:      e.user!.name!,
       personal_email: e.user!.login_id!.toLowerCase(),
-      status:       "active",
-      cohort_type:  cohort.level ?? "practitioner",
-      serial_no:    i + 1,
+      status:         "active" as const,
+      cohort_type:    cohort.level ?? "practitioner",
+      serial_no:      i + 1,
     }));
 
     const { data: inserted, error: insErr } = await svc
