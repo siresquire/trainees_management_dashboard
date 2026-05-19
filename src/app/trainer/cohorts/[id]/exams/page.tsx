@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import ExamsClient from "./ExamsClient";
 import { fitModels, type TrainingPoint, type ModelBundle } from "@/lib/regression";
@@ -75,11 +75,14 @@ export default async function ExamsPage({
     : { data: [] };
 
   // ── Regression: build training set from ALL same-level cohorts ──────────────
+  // Use service client for cross-cohort queries so RLS on other cohorts doesn't
+  // block historical data needed for the regression model.
 
+  const svc = createServiceClient();
   const cohortLevel = cohort?.level ?? "practitioner";
 
   // 1. All cohort IDs of the same level (including the current one)
-  const { data: sameLevelCohorts } = await supabase
+  const { data: sameLevelCohorts } = await svc
     .from("cohorts")
     .select("id")
     .eq("level", cohortLevel);
@@ -88,7 +91,7 @@ export default async function ExamsPage({
 
   // 2. All trainees across those cohorts
   const { data: allCohortTrainees } = allCohortIds.length
-    ? await supabase
+    ? await svc
         .from("trainees")
         .select("id, cohort_id")
         .in("cohort_id", allCohortIds)
@@ -103,7 +106,7 @@ export default async function ExamsPage({
 
   // 3. First-attempt exam outcomes (passed/failed) — these are our training labels
   const { data: historicalOutcomes } = allTraineeIds.length
-    ? await supabase
+    ? await svc
         .from("exam_outcomes")
         .select("trainee_id, actual_score, outcome, attempt_no")
         .in("trainee_id", allTraineeIds)
@@ -115,7 +118,7 @@ export default async function ExamsPage({
 
   // 4. Quiz scores for labelled trainees (to compute quiz avg feature)
   const { data: allQuizzes } = allCohortIds.length
-    ? await supabase
+    ? await svc
         .from("exam_quizzes")
         .select("id, cohort_id, max_score")
         .in("cohort_id", allCohortIds)
@@ -124,7 +127,7 @@ export default async function ExamsPage({
   const allQuizIds = (allQuizzes ?? []).map((q) => q.id);
 
   const { data: allExamScores } = allQuizIds.length && labelledTraineeIds.length
-    ? await supabase
+    ? await svc
         .from("exam_scores")
         .select("trainee_id, quiz_id, score, attempt_no")
         .in("quiz_id", allQuizIds)
@@ -133,7 +136,7 @@ export default async function ExamsPage({
 
   // 5. Tasks per cohort (to know totals for completion rates)
   const { data: allTasks } = allCohortIds.length
-    ? await supabase
+    ? await svc
         .from("cohort_week_tasks")
         .select("id, cohort_id, task_type")
         .in("cohort_id", allCohortIds)
@@ -145,7 +148,7 @@ export default async function ExamsPage({
   //    and labelled historical trainees (for training)
   const completionTargetIds = [...new Set([...traineeIds, ...labelledTraineeIds])];
   const { data: allCompletions } = completionTargetIds.length && allTaskIds.length
-    ? await supabase
+    ? await svc
         .from("completions")
         .select("trainee_id, task_id")
         .in("trainee_id", completionTargetIds)

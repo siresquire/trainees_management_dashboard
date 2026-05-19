@@ -5,6 +5,7 @@ import StatusMenu from "./StatusMenu";
 import ReassignOwnerForm from "./ReassignOwnerForm";
 import CodeNameForm from "./CodeNameForm";
 import ExamTypeForm from "./ExamTypeForm";
+import CohortTabBar from "./CohortTabBar";
 
 const LEVEL_BADGE: Record<string, string> = {
   practitioner: "bg-blue-100 text-blue-700",
@@ -160,11 +161,10 @@ export default async function CohortLayout({
           )}
         </div>
 
-        <nav className="flex gap-0 -mb-px overflow-x-auto">
-          {tabs.map((tab) => (
-            <TabLink key={tab.href} href={`${base}${tab.href}`} label={tab.label} />
-          ))}
-        </nav>
+        <CohortTabBar
+          tabs={tabs.map((t) => ({ label: t.label, href: `${base}${t.href}` }))}
+          base={base}
+        />
       </div>
 
       <div className="flex-1 p-4 md:p-8">{children}</div>
@@ -172,13 +172,3 @@ export default async function CohortLayout({
   );
 }
 
-function TabLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors"
-    >
-      {label}
-    </Link>
-  );
-}

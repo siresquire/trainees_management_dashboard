@@ -533,6 +533,114 @@ export async function deleteMyExamResult(outcomeId: string) {
   return { success: true };
 }
 
+// ── Upload all quiz scores from a single multi-column file ────────────────────
+//
+// File format: Column A = email, Column B = name (optional),
+// remaining columns named after quiz names (exact match).
+
+export async function uploadAllQuizScoresFromFile(
+  cohortId: string,
+  formData: FormData,
+): Promise<{ imported: number; skipped: number; warnings: string[] } | { error: string }> {
+  const file = formData.get("scores_file") as File | null;
+  if (!file || file.size === 0) return { error: "No file provided." };
+  if (file.size > 10_000_000) return { error: "File too large (max 10 MB)." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  // Fetch quizzes for this cohort
+  const { data: quizzes } = await supabase
+    .from("exam_quizzes")
+    .select("id, quiz_name, max_score")
+    .eq("cohort_id", cohortId)
+    .order("created_at", { ascending: true });
+
+  if (!quizzes?.length) {
+    return { error: "No quizzes found for this cohort. Create quizzes first, then upload scores." };
+  }
+
+  // Parse file
+  let jsonRows: Array<Record<string, unknown>> = [];
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+      raw: false,
+    });
+  } catch {
+    return { error: "Could not parse the file. Please use the downloaded template." };
+  }
+
+  if (!jsonRows.length) return { error: "No data rows found in the file." };
+
+  // Build email → trainee_id map
+  const { data: trainees } = await supabase
+    .from("trainees")
+    .select("id, personal_email, amalitech_email")
+    .eq("cohort_id", cohortId)
+    .is("deleted_at", null);
+
+  const traineeByEmail = new Map<string, string>();
+  for (const t of trainees ?? []) {
+    if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase().trim(), t.id);
+    if (t.amalitech_email) traineeByEmail.set(t.amalitech_email.toLowerCase().trim(), t.id);
+  }
+
+  // Get all column keys from the first row
+  const allKeys = Object.keys(jsonRows[0] ?? {});
+
+  let totalImported = 0;
+  let totalSkipped = 0;
+  const warnings: string[] = [];
+
+  for (const quiz of quizzes) {
+    // Find matching column (case-insensitive, trimmed)
+    const colKey = allKeys.find(
+      (k) => k.trim().toLowerCase() === quiz.quiz_name.trim().toLowerCase()
+    );
+
+    if (!colKey) {
+      warnings.push(`Column not found for quiz: "${quiz.quiz_name}"`);
+      continue;
+    }
+
+    const rows: Array<{ email: string; score: number }> = [];
+    for (const row of jsonRows) {
+      const email = String(
+        row["email"] ?? row["Email"] ?? row["EMAIL"] ?? ""
+      ).trim().toLowerCase();
+      if (!email) continue;
+
+      const raw = row[colKey];
+      if (raw === "" || raw === null || raw === undefined) continue; // blank = skipped
+      const score = parseFloat(String(raw));
+      if (isNaN(score) || score < 0) continue;
+
+      rows.push({ email, score });
+    }
+
+    if (!rows.length) {
+      warnings.push(`No valid scores in column for quiz: "${quiz.quiz_name}"`);
+      continue;
+    }
+
+    const result = await uploadExamScores(quiz.id, cohortId, rows);
+    if ("error" in result) {
+      warnings.push(`Error uploading "${quiz.quiz_name}": ${result.error}`);
+    } else {
+      totalImported += result.imported ?? 0;
+      totalSkipped += result.skipped ?? 0;
+    }
+  }
+
+  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return { imported: totalImported, skipped: totalSkipped, warnings };
+}
+
 // ── Upload exam scores from CSV or XLSX file ──────────────────────────────────
 //
 // Accepts both .csv and .xlsx uploads server-side so we don't need client-side

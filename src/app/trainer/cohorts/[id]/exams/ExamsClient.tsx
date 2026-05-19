@@ -8,6 +8,7 @@ import {
   createExamQuiz,
   deleteExamQuiz,
   uploadExamScoresFromFile,
+  uploadAllQuizScoresFromFile,
   uploadVoucherPool,
   issueVoucher,
   revokeVoucher,
@@ -287,11 +288,14 @@ export default function ExamsClient({
   );
 
   // ── Quiz Scores tab state ────────────────────────────────────────────────────
-  const [showCreateQuiz, setShowCreateQuiz] = useState(false);
-  const [createError,    setCreateError]    = useState("");
-  const [uploadingFor,   setUploadingFor]   = useState<string | null>(null);
-  const [uploadError,    setUploadError]    = useState("");
-  const [uploadResult,   setUploadResult]   = useState("");
+  const [showCreateQuiz,  setShowCreateQuiz]  = useState(false);
+  const [createError,     setCreateError]     = useState("");
+  const [uploadingFor,    setUploadingFor]    = useState<string | null>(null);
+  const [uploadError,     setUploadError]     = useState("");
+  const [uploadResult,    setUploadResult]    = useState("");
+  const [showBulkUpload,  setShowBulkUpload]  = useState(false);
+  const [bulkUploadError, setBulkUploadError] = useState("");
+  const [bulkUploadResult,setBulkUploadResult]= useState("");
 
   function handleCreateQuiz(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -332,8 +336,35 @@ export default function ExamsClient({
     });
   }
 
+  function handleBulkUploadFile(file: File) {
+    setBulkUploadError("");
+    setBulkUploadResult("");
+    const fd = new FormData();
+    fd.append("scores_file", file);
+    startTransition(async () => {
+      const res = await uploadAllQuizScoresFromFile(cohortId, fd);
+      if ("error" in res) {
+        setBulkUploadError(res.error);
+        toast(res.error, "error");
+        return;
+      }
+      const msg =
+        `Imported ${res.imported} score${res.imported !== 1 ? "s" : ""}` +
+        (res.skipped ? ` · ${res.skipped} not matched` : "") +
+        (res.warnings.length ? ` · ${res.warnings.length} warning${res.warnings.length !== 1 ? "s" : ""}` : "") +
+        ".";
+      setBulkUploadResult(msg + (res.warnings.length ? `\n${res.warnings.join("\n")}` : ""));
+      toast(msg);
+      router.refresh();
+    });
+  }
+
   function downloadTemplate() {
-    window.location.href = "/api/templates/exam-scores";
+    const params = new URLSearchParams();
+    for (const q of quizzes) {
+      params.append("quiz", `${q.quiz_name}||${q.max_score}`);
+    }
+    window.location.href = `/api/templates/exam-scores${quizzes.length ? `?${params}` : ""}`;
   }
 
   // ── Official Exams tab state ─────────────────────────────────────────────────
@@ -502,7 +533,53 @@ export default function ExamsClient({
               </svg>
               Download Score Template
             </button>
+            {quizzes.length > 0 && (
+              <button
+                onClick={() => { setShowBulkUpload((v) => !v); setBulkUploadError(""); setBulkUploadResult(""); }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-sm font-medium rounded-lg text-slate-700 transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+                Upload All Scores
+              </button>
+            )}
           </div>
+
+          {/* Bulk upload panel */}
+          {showBulkUpload && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-900 mb-1">Upload All Quiz Scores</h3>
+              <p className="text-xs text-slate-500 mb-3">
+                Upload a single file covering all quizzes at once. Use the{" "}
+                <button onClick={downloadTemplate} className="text-orange-600 hover:underline font-medium">
+                  score template
+                </button>{" "}
+                — Column A is email, each subsequent column is a quiz name. Leave cells blank if a trainee did not take that quiz.
+              </p>
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={isPending}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleBulkUploadFile(f);
+                }}
+                className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
+              />
+              {bulkUploadError && <p className="text-xs text-red-600 mt-2">{bulkUploadError}</p>}
+              {bulkUploadResult && (
+                <pre className="text-xs text-green-700 mt-2 whitespace-pre-wrap">{bulkUploadResult}</pre>
+              )}
+              {isPending && <p className="text-xs text-slate-400 mt-2">Uploading…</p>}
+              <button
+                onClick={() => { setShowBulkUpload(false); setBulkUploadError(""); setBulkUploadResult(""); }}
+                className="mt-3 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          )}
 
           {/* Create quiz form */}
           {showCreateQuiz && (
@@ -703,44 +780,73 @@ export default function ExamsClient({
                           </th>
                         ))}
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-20">Avg %</th>
+                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Min</th>
+                        <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Max</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-28">Eligibility</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {trainees.map((t) => {
-                        const pcts: number[] = [];
-                        for (const q of quizzes) {
+                        // Build per-quiz score data in order
+                        const quizData = quizzes.map((q, qi) => {
                           const best = bestScoreMap.get(`${t.id}:${q.id}`);
-                          if (best !== undefined) pcts.push((best / q.max_score) * 100);
-                        }
-                        const avg  = pcts.length
+                          const pct  = best !== undefined ? (best / q.max_score) * 100 : null;
+                          // Trend vs previous quiz
+                          let trend: "up" | "down" | "flat" | null = null;
+                          if (pct !== null && qi > 0) {
+                            const prev = quizzes.slice(0, qi).map((pq) => {
+                              const pb = bestScoreMap.get(`${t.id}:${pq.id}`);
+                              return pb !== undefined ? (pb / pq.max_score) * 100 : null;
+                            }).filter((v): v is number => v !== null);
+                            if (prev.length > 0) {
+                              const prevPct = prev[prev.length - 1];
+                              if (pct > prevPct + 0.5) trend = "up";
+                              else if (pct < prevPct - 0.5) trend = "down";
+                              else trend = "flat";
+                            }
+                          }
+                          return { q, best, pct, trend };
+                        });
+
+                        const scored = quizData.filter((d) => d.pct !== null);
+                        const pcts   = scored.map((d) => d.pct as number);
+                        const avg    = pcts.length
                           ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)
                           : null;
-                        const elig = eligibility(avg);
+                        const minPct = pcts.length ? Math.round(Math.min(...pcts)) : null;
+                        const maxPct = pcts.length ? Math.round(Math.max(...pcts)) : null;
+                        const elig   = eligibility(avg);
 
                         return (
                           <tr key={t.id} className="hover:bg-slate-50">
                             <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                             <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                            {quizzes.map((q) => {
-                              const best = bestScoreMap.get(`${t.id}:${q.id}`);
-                              const pct  = best !== undefined ? (best / q.max_score) * 100 : null;
-                              return (
-                                <td key={q.id} className="px-3 py-3 text-center tabular-nums">
-                                  {pct !== null ? (
+                            {quizData.map(({ q, best, pct, trend }) => (
+                              <td key={q.id} className="px-3 py-3 text-center tabular-nums">
+                                {pct !== null ? (
+                                  <span className="inline-flex items-center justify-center gap-0.5">
                                     <span className={`text-sm ${scoreTextColor(pct)}`}>{best}</span>
-                                  ) : (
-                                    <span className="text-xs text-slate-300">—</span>
-                                  )}
-                                </td>
-                              );
-                            })}
+                                    {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
+                                    {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
+                                    {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-300">—</span>
+                                )}
+                              </td>
+                            ))}
                             <td className="px-3 py-3 text-center tabular-nums">
                               {avg !== null ? (
                                 <span className={`text-sm font-medium ${elig.color}`}>{avg}%</span>
                               ) : (
                                 <span className="text-xs text-slate-300">—</span>
                               )}
+                            </td>
+                            <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                              {minPct !== null ? `${minPct}%` : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                              {maxPct !== null ? `${maxPct}%` : <span className="text-slate-300">—</span>}
                             </td>
                             <td className="px-4 py-3">
                               <span className={`text-xs font-medium ${elig.color}`}>{elig.label}</span>
