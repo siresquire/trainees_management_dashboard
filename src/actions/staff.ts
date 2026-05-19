@@ -49,36 +49,86 @@ export async function inviteStaff(
 
   const { full_name, email, role } = parsed.data;
   const svc = createServiceClient();
+  const resendKey = process.env.RESEND_API_KEY;
 
-  // Try invitation first; fall back to magic link OTP if user already exists
-  const { error: inviteErr } = await (svc.auth.admin as any).inviteUserByEmail(email, {
-    redirectTo: `${appUrl}/auth/accept-invite`,
-    data: { full_name, role },
-  });
-
-  if (!inviteErr) {
-    revalidatePath("/superadmin/dashboard");
-    return { success: true };
-  }
-
-  // User already exists — send magic link
-  if ((inviteErr as any).code === "email_exists" || inviteErr.status === 422) {
-    const { createClient: createAnonClient } = await import("@supabase/supabase-js");
-    const anonClient = createAnonClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { flowType: "implicit", autoRefreshToken: false, persistSession: false } }
-    );
-    const { error: otpErr } = await anonClient.auth.signInWithOtp({
+  if (resendKey) {
+    // Generate invite link, send via Resend
+    const { data: linkData, error: linkErr } = await (svc.auth.admin as any).generateLink({
+      type: "invite",
       email,
-      options: { shouldCreateUser: false, emailRedirectTo: `${appUrl}/auth/accept-invite` },
+      options: {
+        redirectTo: `${appUrl}/auth/accept-invite`,
+        data: { full_name, role },
+      },
     });
-    if (otpErr) return { error: otpErr.message };
-    revalidatePath("/superadmin/dashboard");
-    return { success: true };
+
+    if (linkErr && (linkErr as any).code !== "email_exists") {
+      return { error: `Failed to generate invite link: ${linkErr.message}` };
+    }
+
+    if (linkData) {
+      const inviteLink: string = linkData?.properties?.action_link ?? linkData?.action_link;
+      const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Amalitech Dashboard <onboarding@resend.dev>";
+
+      const emailRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: email,
+          subject: "You've been invited to Amalitech Training Dashboard",
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+              <div style="width:40px;height:40px;background:#f97316;border-radius:10px;margin-bottom:20px"></div>
+              <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
+              <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been invited as a <strong>${role.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
+              <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
+              <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this, you can ignore this email.</p>
+            </div>
+          `,
+        }),
+      });
+
+      if (!emailRes.ok) {
+        const body = await emailRes.json().catch(() => ({}));
+        return { error: `Failed to send invite email: ${(body as { message?: string }).message ?? emailRes.status}` };
+      }
+    }
+  } else {
+    // Fallback: Supabase email (requires SMTP in Supabase dashboard)
+    const { error: inviteErr } = await (svc.auth.admin as any).inviteUserByEmail(email, {
+      redirectTo: `${appUrl}/auth/accept-invite`,
+      data: { full_name, role },
+    });
+
+    if (!inviteErr) {
+      revalidatePath("/superadmin/dashboard");
+      return { success: true };
+    }
+
+    // User already exists — send magic link
+    if ((inviteErr as any).code === "email_exists" || inviteErr.status === 422) {
+      const { createClient: createAnonClient } = await import("@supabase/supabase-js");
+      const anonClient = createAnonClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { flowType: "implicit", autoRefreshToken: false, persistSession: false } }
+      );
+      const { error: otpErr } = await anonClient.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false, emailRedirectTo: `${appUrl}/auth/accept-invite` },
+      });
+      if (otpErr) return { error: otpErr.message };
+    } else {
+      return { error: inviteErr.message };
+    }
   }
 
-  return { error: inviteErr.message };
+  revalidatePath("/superadmin/dashboard");
+  return { success: true };
 }
 
 // ── Submit access request (public — no auth) ─────────────────────────────
@@ -177,14 +227,62 @@ export async function approveAccessRequest(
 
   const roleToGrant = (req.requested_role === "trainer" ? "trainer" : "quiz_creator") as string;
 
-  // Send invite with the requested role
-  const { error: inviteErr } = await (svc.auth.admin as any).inviteUserByEmail(req.email, {
-    redirectTo: `${appUrl}/auth/accept-invite`,
-    data: { full_name: req.full_name, role: roleToGrant },
-  });
+  const resendKey = process.env.RESEND_API_KEY;
 
-  if (inviteErr && inviteErr.status !== 422 && (inviteErr as any).code !== "email_exists") {
-    return { error: inviteErr.message };
+  if (resendKey) {
+    // Generate the invite link server-side, send email via Resend directly
+    const { data: linkData, error: linkErr } = await (svc.auth.admin as any).generateLink({
+      type: "invite",
+      email: req.email,
+      options: {
+        redirectTo: `${appUrl}/auth/accept-invite`,
+        data: { full_name: req.full_name, role: roleToGrant },
+      },
+    });
+
+    if (linkErr) return { error: `Failed to generate invite link: ${linkErr.message}` };
+
+    const inviteLink: string = linkData?.properties?.action_link ?? linkData?.action_link;
+    const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Amalitech Dashboard <onboarding@resend.dev>";
+
+    const emailRes = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: req.email,
+        subject: "You've been invited to Amalitech Training Dashboard",
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+            <div style="width:40px;height:40px;background:#f97316;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:20px">
+              <span style="color:#fff;font-weight:700;font-size:18px">A</span>
+            </div>
+            <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
+            <p style="color:#475569;margin:0 0 24px">Hi ${req.full_name}, you have been approved as a <strong>${roleToGrant.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
+            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
+            <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this invitation, you can ignore this email.</p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!emailRes.ok) {
+      const body = await emailRes.json().catch(() => ({}));
+      return { error: `Failed to send invite email: ${(body as { message?: string }).message ?? emailRes.status}` };
+    }
+  } else {
+    // Fallback: let Supabase send the email (requires SMTP configured in Supabase dashboard)
+    const { error: inviteErr } = await (svc.auth.admin as any).inviteUserByEmail(req.email, {
+      redirectTo: `${appUrl}/auth/accept-invite`,
+      data: { full_name: req.full_name, role: roleToGrant },
+    });
+
+    if (inviteErr && inviteErr.status !== 422 && (inviteErr as any).code !== "email_exists") {
+      return { error: inviteErr.message };
+    }
   }
 
   // Mark approved
