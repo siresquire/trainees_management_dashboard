@@ -4,7 +4,8 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function POST(request: NextRequest) {
   const { email, password } = await request.json();
 
-  const cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cookiesToSet: { name: string; value: string; options: any }[] = [];
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   const response = NextResponse.json({ success: true });
   cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
+    response.cookies.set(name, value, options);
   });
 
   return response;
