@@ -8,11 +8,21 @@ import Link from "next/link";
 const inputCls =
   "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
 
+const inputErrCls =
+  "w-full rounded-lg border border-red-400 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent";
+
 const GHANA_OFFICES = [
   { town: "Takoradi", region: "Western Region"       },
   { town: "Accra",    region: "Greater Accra Region" },
   { town: "Kumasi",   region: "Ashanti Region"       },
 ] as const;
+
+function isValidPhone(raw: string): boolean {
+  const s = raw.replace(/[\s\-().]/g, "");
+  if (/^(\+233[2-9]\d{8}|0[2-9]\d{8})$/.test(s)) return true;
+  if (/^(\+250[7-9]\d{8}|0[7-9]\d{8})$/.test(s)) return true;
+  return false;
+}
 
 function RequiredMark() {
   return <span className="text-red-500 ml-0.5" aria-hidden>*</span>;
@@ -50,18 +60,42 @@ function Field({
 
 export default function RequestForm() {
   const [state, action, isPending] = useActionState(submitAccessRequest, null);
+
+  // Role + trainer location state
   const [selectedRole, setSelectedRole] = useState<"trainer" | "quiz_creator">("quiz_creator");
   const [selectedInstitution, setSelectedInstitution] = useState("");
   const [selectedTown, setSelectedTown] = useState("");
 
+  // Controlled values for all text fields — survive failed submissions
+  const [fullName, setFullName]           = useState("");
+  const [email, setEmail]                 = useState("");
+  const [institutionText, setInstitutionText] = useState(""); // quiz_creator only
+  const [townText, setTownText]           = useState("");     // quiz_creator only
+  const [regionText, setRegionText]       = useState("");     // quiz_creator only
+  const [phone, setPhone]                 = useState("");
+  const [reason, setReason]               = useState("");
+  const [phoneBlurred, setPhoneBlurred]   = useState(false);
+
   const isTrainer = selectedRole === "trainer";
   const isRwanda  = selectedInstitution === "AmaliTech - Rwanda";
 
-  // Derived values for trainer — auto-filled when Rwanda, linked when Ghana
   const townValue   = isRwanda ? "Kigali" : selectedTown;
   const regionValue = isRwanda
     ? "Kigali"
     : GHANA_OFFICES.find((o) => o.town === selectedTown)?.region ?? "";
+
+  // Phone input: strip anything that isn't +, digit, space, or dash
+  function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const cleaned = e.target.value.replace(/[^\d+\s\-]/g, "");
+    setPhone(cleaned);
+  }
+
+  // Show live error: after field is blurred OR once 10+ chars entered (number is "complete")
+  const phoneInvalid     = phone.length > 0 && !isValidPhone(phone);
+  const showLivePhoneErr = phoneInvalid && (phoneBlurred || phone.replace(/\s/g, "").length >= 10);
+  const phoneError       = showLivePhoneErr
+    ? "Enter a valid Ghana (+233) or Rwanda (+250) phone number"
+    : state?.errors?.phone?.[0];
 
   if (state?.success) {
     return (
@@ -85,7 +119,6 @@ export default function RequestForm() {
 
   return (
     <form action={action} className="space-y-4">
-      {/* Required-fields note */}
       <p className="text-xs text-slate-400">
         Fields marked <span className="text-red-500">*</span> are required.
       </p>
@@ -129,6 +162,8 @@ export default function RequestForm() {
           name="full_name"
           type="text"
           required
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
           placeholder="Your full name"
           className={inputCls}
         />
@@ -141,12 +176,14 @@ export default function RequestForm() {
           name="email"
           type="email"
           required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
           className={inputCls}
         />
       </Field>
 
-      {/* Institution — dropdown for Trainer, free text for Quiz Creator */}
+      {/* Institution */}
       <Field
         label="Institution / Organisation"
         name="institution"
@@ -161,7 +198,7 @@ export default function RequestForm() {
             value={selectedInstitution}
             onChange={(e) => {
               setSelectedInstitution(e.target.value);
-              setSelectedTown(""); // reset town when institution changes
+              setSelectedTown("");
             }}
             className={inputCls}
           >
@@ -175,16 +212,17 @@ export default function RequestForm() {
             name="institution"
             type="text"
             required
+            value={institutionText}
+            onChange={(e) => setInstitutionText(e.target.value)}
             placeholder="e.g. University of Ghana"
             className={inputCls}
           />
         )}
       </Field>
 
-      {/* Town + Region (side by side) */}
+      {/* Town + Region */}
       {isTrainer ? (
         <>
-          {/* Hidden inputs carry submitted values (avoids disabled-field non-submission) */}
           <input type="hidden" name="town"   value={townValue} />
           <input type="hidden" name="region" value={regionValue} />
           <div className="grid grid-cols-2 gap-3">
@@ -231,6 +269,8 @@ export default function RequestForm() {
               name="town"
               type="text"
               required
+              value={townText}
+              onChange={(e) => setTownText(e.target.value)}
               placeholder="e.g. Accra"
               className={inputCls}
             />
@@ -241,6 +281,8 @@ export default function RequestForm() {
               name="region"
               type="text"
               required
+              value={regionText}
+              onChange={(e) => setRegionText(e.target.value)}
               placeholder="e.g. Greater Accra"
               className={inputCls}
             />
@@ -248,15 +290,18 @@ export default function RequestForm() {
         </div>
       )}
 
-      {/* Phone */}
-      <Field label="Phone number" name="phone" required error={state?.errors?.phone?.[0]}>
+      {/* Phone — live validation */}
+      <Field label="Phone number" name="phone" required error={phoneError}>
         <input
           id="phone"
           name="phone"
           type="tel"
           required
-          placeholder="+233 or +250 number"
-          className={inputCls}
+          value={phone}
+          onChange={handlePhoneChange}
+          onBlur={() => setPhoneBlurred(true)}
+          placeholder="+233 or +250 followed by 9 digits"
+          className={showLivePhoneErr ? inputErrCls : inputCls}
         />
       </Field>
 
@@ -271,6 +316,8 @@ export default function RequestForm() {
           id="reason"
           name="reason"
           rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
           placeholder="Briefly explain your role and how you plan to use the platform…"
           className={`${inputCls} resize-none`}
         />
