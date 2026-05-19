@@ -4,7 +4,6 @@ import { useActionState, useEffect } from "react";
 import { validateStaff, validateTrainee } from "./actions";
 import { useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 
 type Cohort = { id: string; name: string; code_name: string | null };
 
@@ -52,9 +51,13 @@ function StaffForm() {
     setSigningIn(true);
     setAuthError(null);
 
-    const supabase = createClient();
-    supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
-      if (error) {
+    fetch("/api/auth/signin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ email, password }),
+    }).then(async (res) => {
+      if (!res.ok) {
         setAuthError('Incorrect password. Use "Forgot password?" below to reset it.');
         setSigningIn(false);
       } else {
