@@ -1,6 +1,11 @@
 import * as XLSX from "xlsx";
 import { NextResponse } from "next/server";
 
+// Template format:
+//   Row 1 — column headers: "email" in col A, quiz names in B, C, …
+//   Row 2 — max scores:    blank in col A, max score for each quiz col
+//   Row 3+ — data rows:    email, then score for each quiz (blank = not taken)
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
 
@@ -14,82 +19,54 @@ export async function GET(req: Request) {
           const max = sep >= 0 ? parseInt(p.slice(sep + 2), 10) : 100;
           return { name: name || "Quiz", max: isNaN(max) ? 100 : max };
         })
-      : null;
+      : [
+          { name: "Quiz 1", max: 100 },
+          { name: "Quiz 2", max: 65 },
+        ];
 
   const wb = XLSX.utils.book_new();
 
-  if (quizzes && quizzes.length > 0) {
-    // ── Cohort-specific template with one column per quiz ──────────────────────
-    const headers = ["email", "name (optional)", ...quizzes.map((q) => q.name)];
-    const example1 = [
-      "jane@example.com",
-      "Jane Doe",
-      ...quizzes.map((q) => Math.round(q.max * 0.85)),
-    ];
-    const example2 = [
-      "john@example.com",
-      "John Smith",
-      ...quizzes.map((q) => Math.round(q.max * 0.72)),
-    ];
+  // Row 1: headers
+  const headerRow = ["email", ...quizzes.map((q) => q.name)];
+  // Row 2: max scores (blank for email col)
+  const maxRow = ["", ...quizzes.map((q) => q.max)];
+  // Sample data rows
+  const sample1 = ["jane@example.com", ...quizzes.map((q) => Math.round(q.max * 0.85))];
+  const sample2 = ["john@example.com", ...quizzes.map((q) => Math.round(q.max * 0.72))];
+  const sample3 = ["mary@example.com", ...quizzes.map((q, i) => (i === 0 ? "" : Math.round(q.max * 0.90)))];
 
-    const scoresWs = XLSX.utils.aoa_to_sheet([headers, example1, example2]);
-    scoresWs["!cols"] = [
-      { wch: 32 },
-      { wch: 20 },
-      ...quizzes.map(() => ({ wch: 14 })),
-    ];
-    XLSX.utils.book_append_sheet(wb, scoresWs, "Scores");
+  const scoresWs = XLSX.utils.aoa_to_sheet([headerRow, maxRow, sample1, sample2, sample3]);
+  scoresWs["!cols"] = [{ wch: 34 }, ...quizzes.map(() => ({ wch: 14 }))];
 
-    const instrRows = [
-      ["EXAM SCORES — BULK UPLOAD TEMPLATE"],
-      [""],
-      ["Column", "Required", "Description"],
-      ["email", "Yes", "Trainee email address (personal or Amalitech). Used to match trainee records."],
-      ["name (optional)", "No", "Trainee name — for reference only, not used for matching."],
-      ...quizzes.map((q) => [
-        q.name,
-        "Yes",
-        `Score for quiz "${q.name}" (out of ${q.max}). Leave blank if not yet taken.`,
-      ]),
-      [""],
-      ["HOW TO USE"],
-      ["1. Fill in scores for each row. Delete the two example rows before uploading."],
-      ["2. Leave a score cell blank (not zero) if a trainee did not take that quiz."],
-      ["3. Save as .xlsx or .csv, then click Upload All Scores in the Quiz Scores tab."],
-      [""],
-      ["TIP: Column names must exactly match the quiz names in the dashboard."],
-    ];
-    const instrWs = XLSX.utils.aoa_to_sheet(instrRows);
-    instrWs["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 80 }];
-    XLSX.utils.book_append_sheet(wb, instrWs, "Instructions");
-  } else {
-    // ── Generic fallback template (no quizzes defined yet) ─────────────────────
-    const scoresWs = XLSX.utils.aoa_to_sheet([
-      ["email", "name", "score", "date_taken"],
-      ["jane@example.com", "Jane Doe", 85, "2026-04-29"],
-      ["john@example.com", "John Smith", 72, "2026-04-29"],
-    ]);
-    scoresWs["!cols"] = [{ wch: 32 }, { wch: 25 }, { wch: 10 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, scoresWs, "Scores");
+  // Highlight max-score row with a comment so it's obvious
+  // (XLSX.js doesn't support cell styles in community edition, so we rely on the Instructions sheet)
+  XLSX.utils.book_append_sheet(wb, scoresWs, "Scores");
 
-    const instrWs = XLSX.utils.aoa_to_sheet([
-      ["EXAM SCORES UPLOAD TEMPLATE — INSTRUCTIONS"],
-      [""],
-      ["Column", "Required", "Description"],
-      ["email", "Yes", "Trainee email address (personal or Amalitech). Must match the address on their account."],
-      ["name", "No", "Trainee full name — for your reference only, not used for matching."],
-      ["score", "Yes", "Numeric score achieved (e.g. 85 or 700)."],
-      ["date_taken", "No", "Date the test was taken, in YYYY-MM-DD format. Defaults to today if blank."],
-      [""],
-      ["HOW TO USE"],
-      ["1. Create quizzes first in the Quiz Scores tab, then re-download this template to get quiz-specific columns."],
-      ["2. Fill in rows below the two sample rows (delete the samples before uploading)."],
-      ["3. Save the file — keep it as .xlsx or export as .csv."],
-      ["4. In the Quiz Scores tab, click Upload All Scores, then select this file."],
-    ]);
-    instrWs["!cols"] = [{ wch: 15 }, { wch: 12 }, { wch: 80 }];
-    XLSX.utils.book_append_sheet(wb, instrWs, "Instructions");
-  }
+  const instrRows = [
+    ["EXAM SCORES TEMPLATE — HOW TO USE"],
+    [""],
+    ["ROW LAYOUT"],
+    ["Row 1", "Column headers — do NOT edit the 'email' header. Name quiz columns whatever you like."],
+    ["Row 2", "Max scores — enter the maximum possible score for each quiz in this row. Leave email cell blank."],
+    ["Row 3+", "Your data — one row per trainee. Leave a score cell blank (not zero) if a trainee did not take that quiz."],
+    [""],
+    ["COLUMN RULES"],
+    ["email", "Required", "Trainee's email address (personal or Amalitech). Must match their record in the dashboard."],
+    ...quizzes.map((q) => [q.name, "Optional per cell", `Score for ${q.name}. Max score set in row 2: ${q.max}.`]),
+    [""],
+    ["TIPS"],
+    ["· Delete the three sample rows (rows 3, 4, 5) before uploading."],
+    ["· You can add more quiz columns — just give them a header name in row 1 and a max score in row 2."],
+    ["· Column names become the quiz names in the dashboard. Existing quizzes matched by name will be updated, not duplicated."],
+    ["· Save as .xlsx or .csv, then click Upload Scores in the Quiz Scores tab."],
+    [""],
+    ["LINK IMPORT"],
+    ["· Instead of uploading a file you can paste a Google Sheets or direct file URL in the Import from URL panel."],
+    ["· Google Sheets must have 'Anyone with the link can view' sharing enabled."],
+  ];
+  const instrWs = XLSX.utils.aoa_to_sheet(instrRows);
+  instrWs["!cols"] = [{ wch: 15 }, { wch: 18 }, { wch: 90 }];
+  XLSX.utils.book_append_sheet(wb, instrWs, "Instructions");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 

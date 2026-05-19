@@ -8,7 +8,8 @@ import {
   createExamQuiz,
   deleteExamQuiz,
   uploadExamScoresFromFile,
-  uploadAllQuizScoresFromFile,
+  uploadScoresAutoCreate,
+  importScoresFromUrl,
   uploadVoucherPool,
   issueVoucher,
   revokeVoucher,
@@ -288,14 +289,27 @@ export default function ExamsClient({
   );
 
   // ── Quiz Scores tab state ────────────────────────────────────────────────────
-  const [showCreateQuiz,  setShowCreateQuiz]  = useState(false);
-  const [createError,     setCreateError]     = useState("");
-  const [uploadingFor,    setUploadingFor]    = useState<string | null>(null);
-  const [uploadError,     setUploadError]     = useState("");
-  const [uploadResult,    setUploadResult]    = useState("");
-  const [showBulkUpload,  setShowBulkUpload]  = useState(false);
-  const [bulkUploadError, setBulkUploadError] = useState("");
-  const [bulkUploadResult,setBulkUploadResult]= useState("");
+  const [showManageQuizzes, setShowManageQuizzes] = useState(false);
+  const [showCreateQuiz,    setShowCreateQuiz]    = useState(false);
+  const [createError,       setCreateError]       = useState("");
+  const [uploadingFor,      setUploadingFor]       = useState<string | null>(null);
+  const [uploadError,       setUploadError]        = useState("");
+  const [uploadResult,      setUploadResult]       = useState("");
+  // Upload panel
+  const [showUpload,       setShowUpload]       = useState(false);
+  const [uploadAutoError,  setUploadAutoError]  = useState("");
+  const [uploadAutoResult, setUploadAutoResult] = useState("");
+  // URL import panel
+  const [showUrlImport,   setShowUrlImport]   = useState(false);
+  const [urlInput,        setUrlInput]        = useState("");
+  const [urlMode,         setUrlMode]         = useState<"formatted" | "raw">("formatted");
+  const [rawEmailCol,     setRawEmailCol]     = useState("A");
+  const [rawScoreCol,     setRawScoreCol]     = useState("");
+  const [rawQuizName,     setRawQuizName]     = useState("");
+  const [rawMaxScore,     setRawMaxScore]     = useState("100");
+  const [rawStartRow,     setRawStartRow]     = useState("2");
+  const [urlImportError,  setUrlImportError]  = useState("");
+  const [urlImportResult, setUrlImportResult] = useState("");
 
   function handleCreateQuiz(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -336,24 +350,44 @@ export default function ExamsClient({
     });
   }
 
-  function handleBulkUploadFile(file: File) {
-    setBulkUploadError("");
-    setBulkUploadResult("");
+  function handleAutoUploadFile(file: File) {
+    setUploadAutoError("");
+    setUploadAutoResult("");
     const fd = new FormData();
     fd.append("scores_file", file);
     startTransition(async () => {
-      const res = await uploadAllQuizScoresFromFile(cohortId, fd);
-      if ("error" in res) {
-        setBulkUploadError(res.error);
-        toast(res.error, "error");
-        return;
-      }
+      const res = await uploadScoresAutoCreate(cohortId, fd);
+      if ("error" in res) { setUploadAutoError(res.error); toast(res.error, "error"); return; }
       const msg =
         `Imported ${res.imported} score${res.imported !== 1 ? "s" : ""}` +
-        (res.skipped ? ` · ${res.skipped} not matched` : "") +
-        (res.warnings.length ? ` · ${res.warnings.length} warning${res.warnings.length !== 1 ? "s" : ""}` : "") +
-        ".";
-      setBulkUploadResult(msg + (res.warnings.length ? `\n${res.warnings.join("\n")}` : ""));
+        (res.quizzesCreated ? ` · ${res.quizzesCreated} quiz${res.quizzesCreated !== 1 ? "zes" : ""} created` : "") +
+        (res.skipped        ? ` · ${res.skipped} not matched` : "");
+      setUploadAutoResult(msg + (res.warnings.length ? `\nWarnings:\n${res.warnings.join("\n")}` : ""));
+      toast(msg);
+      setShowUpload(false);
+      router.refresh();
+    });
+  }
+
+  function handleUrlImport() {
+    setUrlImportError("");
+    setUrlImportResult("");
+    const fd = new FormData();
+    fd.append("url",      urlInput);
+    fd.append("mode",     urlMode);
+    fd.append("emailCol", rawEmailCol);
+    fd.append("scoreCol", rawScoreCol);
+    fd.append("quizName", rawQuizName);
+    fd.append("maxScore", rawMaxScore);
+    fd.append("startRow", rawStartRow);
+    startTransition(async () => {
+      const res = await importScoresFromUrl(cohortId, fd);
+      if ("error" in res) { setUrlImportError(res.error); toast(res.error, "error"); return; }
+      const msg =
+        `Imported ${res.imported} score${res.imported !== 1 ? "s" : ""}` +
+        ("quizzesCreated" in res && res.quizzesCreated ? ` · ${res.quizzesCreated} quiz${res.quizzesCreated !== 1 ? "zes" : ""} created` : "") +
+        (res.skipped ? ` · ${res.skipped} not matched` : "");
+      setUrlImportResult(msg + (res.warnings.length ? `\nWarnings:\n${res.warnings.join("\n")}` : ""));
       toast(msg);
       router.refresh();
     });
@@ -361,9 +395,7 @@ export default function ExamsClient({
 
   function downloadTemplate() {
     const params = new URLSearchParams();
-    for (const q of quizzes) {
-      params.append("quiz", `${q.quiz_name}||${q.max_score}`);
-    }
+    for (const q of quizzes) params.append("quiz", `${q.quiz_name}||${q.max_score}`);
     window.location.href = `/api/templates/exam-scores${quizzes.length ? `?${params}` : ""}`;
   }
 
@@ -513,17 +545,8 @@ export default function ExamsClient({
       {activeTab === "quizzes" && (
         <div className="space-y-5">
 
-          {/* Toolbar */}
+          {/* ── Toolbar ────────────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={() => setShowCreateQuiz((v) => !v)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-              </svg>
-              Add Quiz / Test
-            </button>
             <button
               onClick={downloadTemplate}
               className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-sm font-medium rounded-lg text-slate-700 transition-colors"
@@ -531,335 +554,394 @@ export default function ExamsClient({
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
-              Download Score Template
+              Download Template
             </button>
-            {quizzes.length > 0 && (
-              <button
-                onClick={() => { setShowBulkUpload((v) => !v); setBulkUploadError(""); setBulkUploadResult(""); }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-sm font-medium rounded-lg text-slate-700 transition-colors"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-                Upload All Scores
-              </button>
-            )}
+            <button
+              onClick={() => { setShowUpload((v) => !v); setShowUrlImport(false); setUploadAutoError(""); setUploadAutoResult(""); }}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                showUpload ? "bg-orange-500 text-white" : "bg-orange-500 hover:bg-orange-600 text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              Upload Scores
+            </button>
+            <button
+              onClick={() => { setShowUrlImport((v) => !v); setShowUpload(false); setUrlImportError(""); setUrlImportResult(""); }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-sm font-medium rounded-lg text-slate-700 transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+              </svg>
+              Import from URL
+            </button>
+            <button
+              onClick={() => setShowManageQuizzes((v) => !v)}
+              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              Manage quizzes {showManageQuizzes ? "▴" : "▾"}
+            </button>
           </div>
 
-          {/* Bulk upload panel */}
-          {showBulkUpload && (
+          {/* ── Upload Scores panel ─────────────────────────────────────────────── */}
+          {showUpload && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-sm font-semibold text-slate-900 mb-1">Upload All Quiz Scores</h3>
+              <h3 className="text-sm font-semibold text-slate-900 mb-1">Upload Score File</h3>
               <p className="text-xs text-slate-500 mb-3">
-                Upload a single file covering all quizzes at once. Use the{" "}
-                <button onClick={downloadTemplate} className="text-orange-600 hover:underline font-medium">
-                  score template
-                </button>{" "}
-                — Column A is email, each subsequent column is a quiz name. Leave cells blank if a trainee did not take that quiz.
+                Use the{" "}
+                <button onClick={downloadTemplate} className="text-orange-600 hover:underline font-medium">downloaded template</button>
+                {" "}or any .xlsx/.csv where:
               </p>
+              <ul className="text-xs text-slate-500 list-disc pl-4 mb-3 space-y-0.5">
+                <li><strong>Row 1</strong> — column headers: <code className="bg-slate-100 px-1 rounded">email</code> in column A, quiz names in the remaining columns (you choose the names).</li>
+                <li><strong>Row 2</strong> — maximum scores: blank for the email column, the max possible score for each quiz column.</li>
+                <li><strong>Row 3+</strong> — one row per trainee. Leave a cell blank (not zero) if they did not take a quiz.</li>
+              </ul>
+              <p className="text-xs text-slate-400 mb-3">Quizzes are created automatically from the column headers. Uploading again with the same quiz name adds scores without creating a duplicate.</p>
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 disabled={isPending}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleBulkUploadFile(f);
-                }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAutoUploadFile(f); }}
                 className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
               />
-              {bulkUploadError && <p className="text-xs text-red-600 mt-2">{bulkUploadError}</p>}
-              {bulkUploadResult && (
-                <pre className="text-xs text-green-700 mt-2 whitespace-pre-wrap">{bulkUploadResult}</pre>
-              )}
-              {isPending && <p className="text-xs text-slate-400 mt-2">Uploading…</p>}
-              <button
-                onClick={() => { setShowBulkUpload(false); setBulkUploadError(""); setBulkUploadResult(""); }}
-                className="mt-3 text-xs text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                Close
-              </button>
+              {uploadAutoError  && <p className="text-xs text-red-600 mt-2">{uploadAutoError}</p>}
+              {uploadAutoResult && <pre className="text-xs text-green-700 mt-2 whitespace-pre-wrap">{uploadAutoResult}</pre>}
+              {isPending && <p className="text-xs text-slate-400 mt-2">Processing…</p>}
             </div>
           )}
 
-          {/* Create quiz form */}
-          {showCreateQuiz && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">New Quiz / Test</h3>
-              <form onSubmit={handleCreateQuiz} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Quiz Name *</label>
-                    <input
-                      name="name"
-                      required
-                      placeholder="e.g. Week 3 Practice Test"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Focus *</label>
-                    <FocusSelect />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Week Number</label>
-                    <input
-                      name="weekNumber"
-                      type="number"
-                      min="0"
-                      max="52"
-                      defaultValue="1"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
-                    <input
-                      name="quizDate"
-                      type="date"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Max Score</label>
-                    <input
-                      name="maxScore"
-                      type="number"
-                      min="1"
-                      defaultValue="100"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
-                  </div>
-                </div>
-                {createError && <p className="text-xs text-red-600">{createError}</p>}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={isPending}
-                    className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                  >
-                    {isPending ? "Creating…" : "Create"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setShowCreateQuiz(false); setCreateError(""); }}
-                    className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!quizzes.length && !showCreateQuiz && (
-            <div className="bg-white rounded-2xl border border-dashed border-slate-300 py-14 text-center">
-              <p className="text-sm text-slate-400">No quizzes yet.</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Click <span className="font-medium text-slate-500">Add Quiz / Test</span> to start tracking scores.
-              </p>
-            </div>
-          )}
-
-          {quizzes.length > 0 && (
-            <>
-              {/* Quiz cards */}
-              <div className="flex flex-wrap gap-3">
-                {quizzes.map((q) => {
-                  const scoredTrainees = new Set(
-                    scores.filter((s) => s.quiz_id === q.id).map((s) => s.trainee_id)
-                  ).size;
-                  const displayFocus =
-                    q.focus_type === "other" && q.focus_label
-                      ? q.focus_label
-                      : FOCUS_DISPLAY[q.focus_type] ?? q.focus_type;
-
-                  return (
-                    <div
-                      key={q.id}
-                      className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3 min-w-[240px] max-w-[320px]"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-800 truncate">{q.quiz_name}</p>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded capitalize ${FOCUS_BADGE[q.focus_type] ?? "bg-slate-100 text-slate-600"}`}>
-                            {displayFocus}
-                          </span>
-                          <span className="text-[10px] text-slate-400">Wk {q.week_number}</span>
-                          {q.quiz_date && (
-                            <span className="text-[10px] text-slate-400">
-                              · {fmtShortDate(q.quiz_date)}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400">
-                            · {scoredTrainees}/{trainees.length} scored
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => setUploadingFor((v) => v === q.id ? null : q.id)}
-                          className="text-xs text-orange-600 hover:text-orange-700 font-medium"
-                          title="Upload scores CSV"
-                        >
-                          ↑ Upload
-                        </button>
-                        <button
-                          onClick={() => handleDeleteQuiz(q.id)}
-                          disabled={isPending}
-                          className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40"
-                          title="Delete quiz"
-                        >
-                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+          {/* ── Import from URL panel ───────────────────────────────────────────── */}
+          {showUrlImport && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-1">Import from URL</h3>
+                <p className="text-xs text-slate-500">
+                  Paste a Google Sheets link or a direct .csv / .xlsx URL. Google Sheets must have <strong>Anyone with the link can view</strong> sharing enabled.
+                </p>
               </div>
 
-              {/* Upload form for selected quiz */}
-              {uploadingFor && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-sm font-semibold text-slate-900 mb-1">
-                    Upload scores — {quizzes.find((q) => q.id === uploadingFor)?.quiz_name}
-                  </h3>
-                  <p className="text-xs text-slate-500 mb-3">
-                    Upload the filled template (.xlsx or .csv). Required columns:{" "}
-                    <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px]">email, score</code>{" "}
-                    Optional:{" "}
-                    <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px]">name, date_taken</code>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Sheet URL *</label>
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/… or direct file URL"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                />
+              </div>
+
+              {/* Mode toggle */}
+              <div>
+                <p className="text-xs font-medium text-slate-600 mb-2">Sheet format</p>
+                <div className="flex gap-2">
+                  {(["formatted", "raw"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setUrlMode(m)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        urlMode === m ? "bg-orange-500 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      {m === "formatted" ? "Our template format" : "Any sheet (specify columns)"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {urlMode === "formatted" && (
+                <p className="text-xs text-slate-500">
+                  The sheet must follow the same layout as the downloaded template: Row 1 = column headers (email + quiz names), Row 2 = max scores, Row 3+ = data. Quizzes are created automatically.
+                </p>
+              )}
+
+              {urlMode === "raw" && (
+                <div className="space-y-3 border border-slate-100 rounded-xl p-4 bg-slate-50">
+                  <p className="text-xs text-slate-500">
+                    For Google Forms or any sheet with your own column layout. Specify which columns have the email and scores using the column letter (A, B, C…).
                   </p>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv,.txt"
-                    disabled={isPending}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleUploadFile(uploadingFor, f);
-                    }}
-                    className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-                  />
-                  {uploadError  && <p className="text-xs text-red-600 mt-2">{uploadError}</p>}
-                  {uploadResult && <p className="text-xs text-green-600 mt-2">{uploadResult}</p>}
-                  {isPending && <p className="text-xs text-slate-400 mt-2">Uploading…</p>}
-                  <button
-                    onClick={() => { setUploadingFor(null); setUploadError(""); setUploadResult(""); }}
-                    className="mt-3 text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                  >
-                    Close
-                  </button>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Email column *</label>
+                      <input
+                        type="text"
+                        value={rawEmailCol}
+                        onChange={(e) => setRawEmailCol(e.target.value.toUpperCase())}
+                        placeholder="e.g. B"
+                        maxLength={3}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Score column *</label>
+                      <input
+                        type="text"
+                        value={rawScoreCol}
+                        onChange={(e) => setRawScoreCol(e.target.value.toUpperCase())}
+                        placeholder="e.g. D"
+                        maxLength={3}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Data starts at row</label>
+                      <input
+                        type="number"
+                        value={rawStartRow}
+                        onChange={(e) => setRawStartRow(e.target.value)}
+                        min="1"
+                        placeholder="2"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">Row 1 = header, data from row 2</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Quiz name *</label>
+                      <input
+                        type="text"
+                        value={rawQuizName}
+                        onChange={(e) => setRawQuizName(e.target.value)}
+                        placeholder="e.g. Week 3 Quiz"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Max score</label>
+                      <input
+                        type="number"
+                        value={rawMaxScore}
+                        onChange={(e) => setRawMaxScore(e.target.value)}
+                        min="1"
+                        placeholder="100"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Score matrix */}
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">Score Matrix</h3>
-                  <span className="text-xs text-slate-400">
-                    Best attempt shown · Pct relative to max score
-                  </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleUrlImport}
+                  disabled={isPending || !urlInput.trim()}
+                  className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {isPending ? "Importing…" : "Import"}
+                </button>
+                {urlImportError  && <p className="text-xs text-red-600">{urlImportError}</p>}
+                {urlImportResult && <pre className="text-xs text-green-700 whitespace-pre-wrap">{urlImportResult}</pre>}
+              </div>
+            </div>
+          )}
+
+          {/* ── Manage Quizzes panel ────────────────────────────────────────────── */}
+          {showManageQuizzes && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Manage Quizzes</h3>
+                <button
+                  onClick={() => { setShowCreateQuiz((v) => !v); setCreateError(""); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
+                  Add Quiz Manually
+                </button>
+              </div>
+
+              {showCreateQuiz && (
+                <form onSubmit={handleCreateQuiz} className="space-y-3 border border-slate-100 rounded-xl p-4 bg-slate-50">
+                  <h4 className="text-xs font-semibold text-slate-700">New Quiz</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Quiz Name *</label>
+                      <input name="name" required placeholder="e.g. Week 3 Practice Test" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Focus *</label>
+                      <FocusSelect />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Week Number</label>
+                      <input name="weekNumber" type="number" min="0" max="52" defaultValue="1" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
+                      <input name="quizDate" type="date" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Max Score</label>
+                      <input name="maxScore" type="number" min="1" defaultValue="100" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white" />
+                    </div>
+                  </div>
+                  {createError && <p className="text-xs text-red-600">{createError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={isPending} className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
+                      {isPending ? "Creating…" : "Create"}
+                    </button>
+                    <button type="button" onClick={() => { setShowCreateQuiz(false); setCreateError(""); }} className="px-3 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg transition-colors">Cancel</button>
+                  </div>
+                </form>
+              )}
+
+              {quizzes.length > 0 ? (
+                <div className="flex flex-wrap gap-3">
+                  {quizzes.map((q) => {
+                    const scoredCount = new Set(scores.filter((s) => s.quiz_id === q.id).map((s) => s.trainee_id)).size;
+                    const displayFocus = q.focus_type === "other" && q.focus_label ? q.focus_label : FOCUS_DISPLAY[q.focus_type] ?? q.focus_type;
+                    return (
+                      <div key={q.id} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3 min-w-[220px] max-w-[300px]">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{q.quiz_name}</p>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded capitalize ${FOCUS_BADGE[q.focus_type] ?? "bg-slate-100 text-slate-600"}`}>{displayFocus}</span>
+                            {q.week_number > 0 && <span className="text-[10px] text-slate-400">Wk {q.week_number}</span>}
+                            {q.quiz_date && <span className="text-[10px] text-slate-400">· {fmtShortDate(q.quiz_date)}</span>}
+                            <span className="text-[10px] text-slate-400">· {scoredCount}/{trainees.length} scored</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button onClick={() => setUploadingFor((v) => v === q.id ? null : q.id)} className="text-xs text-orange-600 hover:text-orange-700 font-medium" title="Upload scores for this quiz">↑</button>
+                          <button onClick={() => handleDeleteQuiz(q.id)} disabled={isPending} className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40" title="Delete quiz">
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
-                        {quizzes.map((q) => (
-                          <th
-                            key={q.id}
-                            className="text-center px-3 py-3 text-xs font-medium text-slate-500 min-w-[90px]"
-                          >
-                            <div className="truncate max-w-[110px] mx-auto" title={q.quiz_name}>
-                              {q.quiz_name}
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-normal">/{q.max_score}</div>
-                          </th>
-                        ))}
+              ) : (
+                <p className="text-xs text-slate-400">No quizzes yet. Upload a score file — quizzes are created automatically from the column headers.</p>
+              )}
+
+              {/* Per-quiz upload inline */}
+              {uploadingFor && (
+                <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                  <p className="text-xs font-semibold text-slate-700 mb-2">Upload scores for: {quizzes.find((q) => q.id === uploadingFor)?.quiz_name}</p>
+                  <p className="text-xs text-slate-500 mb-2">Single-quiz file: columns <code className="bg-slate-100 px-1 rounded">email</code> and <code className="bg-slate-100 px-1 rounded">score</code> required.</p>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    disabled={isPending}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(uploadingFor, f); }}
+                    className="block text-sm text-slate-600 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
+                  />
+                  {uploadError  && <p className="text-xs text-red-600 mt-1">{uploadError}</p>}
+                  {uploadResult && <p className="text-xs text-green-600 mt-1">{uploadResult}</p>}
+                  <button onClick={() => { setUploadingFor(null); setUploadError(""); setUploadResult(""); }} className="mt-2 text-xs text-slate-400 hover:text-slate-600">Close</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Score Matrix — always visible ───────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-700">Score Matrix</h3>
+              <span className="text-xs text-slate-400">
+                Best attempt shown · Pct relative to max score · ↑↓ trend vs previous quiz
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
+                    {quizzes.map((q) => (
+                      <th key={q.id} className="text-center px-3 py-3 text-xs font-medium text-slate-500 min-w-[90px]">
+                        <div className="truncate max-w-[110px] mx-auto" title={q.quiz_name}>{q.quiz_name}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">/{q.max_score}</div>
+                      </th>
+                    ))}
+                    {quizzes.length > 0 && (
+                      <>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-20">Avg %</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Min</th>
                         <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Max</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-28">Eligibility</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {trainees.map((t) => {
-                        // Build per-quiz score data in order
-                        const quizData = quizzes.map((q, qi) => {
-                          const best = bestScoreMap.get(`${t.id}:${q.id}`);
-                          const pct  = best !== undefined ? (best / q.max_score) * 100 : null;
-                          // Trend vs previous quiz
-                          let trend: "up" | "down" | "flat" | null = null;
-                          if (pct !== null && qi > 0) {
-                            const prev = quizzes.slice(0, qi).map((pq) => {
-                              const pb = bestScoreMap.get(`${t.id}:${pq.id}`);
-                              return pb !== undefined ? (pb / pq.max_score) * 100 : null;
-                            }).filter((v): v is number => v !== null);
-                            if (prev.length > 0) {
-                              const prevPct = prev[prev.length - 1];
-                              if (pct > prevPct + 0.5) trend = "up";
-                              else if (pct < prevPct - 0.5) trend = "down";
-                              else trend = "flat";
-                            }
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {trainees.length === 0 ? (
+                    <tr>
+                      <td colSpan={4 + quizzes.length} className="px-4 py-12 text-center text-sm text-slate-400">
+                        No trainees in this cohort yet.
+                      </td>
+                    </tr>
+                  ) : quizzes.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} className="px-4 py-12 text-center text-sm text-slate-400">
+                        No quiz scores yet — upload a score file or import from a URL to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                    trainees.map((t) => {
+                      const quizData = quizzes.map((q, qi) => {
+                        const best = bestScoreMap.get(`${t.id}:${q.id}`);
+                        const pct  = best !== undefined ? (best / q.max_score) * 100 : null;
+                        let trend: "up" | "down" | "flat" | null = null;
+                        if (pct !== null && qi > 0) {
+                          const prevScored = quizzes.slice(0, qi)
+                            .map((pq) => { const pb = bestScoreMap.get(`${t.id}:${pq.id}`); return pb !== undefined ? (pb / pq.max_score) * 100 : null; })
+                            .filter((v): v is number => v !== null);
+                          if (prevScored.length > 0) {
+                            const p = prevScored[prevScored.length - 1];
+                            trend = pct > p + 0.5 ? "up" : pct < p - 0.5 ? "down" : "flat";
                           }
-                          return { q, best, pct, trend };
-                        });
+                        }
+                        return { q, best, pct, trend };
+                      });
 
-                        const scored = quizData.filter((d) => d.pct !== null);
-                        const pcts   = scored.map((d) => d.pct as number);
-                        const avg    = pcts.length
-                          ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)
-                          : null;
-                        const minPct = pcts.length ? Math.round(Math.min(...pcts)) : null;
-                        const maxPct = pcts.length ? Math.round(Math.max(...pcts)) : null;
-                        const elig   = eligibility(avg);
+                      const pcts   = quizData.filter((d) => d.pct !== null).map((d) => d.pct as number);
+                      const avg    = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+                      const minPct = pcts.length ? Math.round(Math.min(...pcts)) : null;
+                      const maxPct = pcts.length ? Math.round(Math.max(...pcts)) : null;
+                      const elig   = eligibility(avg);
 
-                        return (
-                          <tr key={t.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
-                            <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                            {quizData.map(({ q, best, pct, trend }) => (
-                              <td key={q.id} className="px-3 py-3 text-center tabular-nums">
-                                {pct !== null ? (
-                                  <span className="inline-flex items-center justify-center gap-0.5">
-                                    <span className={`text-sm ${scoreTextColor(pct)}`}>{best}</span>
-                                    {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
-                                    {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
-                                    {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-slate-300">—</span>
-                                )}
-                              </td>
-                            ))}
-                            <td className="px-3 py-3 text-center tabular-nums">
-                              {avg !== null ? (
-                                <span className={`text-sm font-medium ${elig.color}`}>{avg}%</span>
+                      return (
+                        <tr key={t.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
+                          <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
+                          {quizData.map(({ q, best, pct, trend }) => (
+                            <td key={q.id} className="px-3 py-3 text-center tabular-nums">
+                              {pct !== null ? (
+                                <span className="inline-flex items-center justify-center gap-0.5">
+                                  <span className={`text-sm ${scoreTextColor(pct)}`}>{best}</span>
+                                  {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
+                                  {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
+                                  {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}
+                                </span>
                               ) : (
                                 <span className="text-xs text-slate-300">—</span>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
-                              {minPct !== null ? `${minPct}%` : <span className="text-slate-300">—</span>}
-                            </td>
-                            <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
-                              {maxPct !== null ? `${maxPct}%` : <span className="text-slate-300">—</span>}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`text-xs font-medium ${elig.color}`}>{elig.label}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
+                          ))}
+                          <td className="px-3 py-3 text-center tabular-nums">
+                            {avg !== null ? <span className={`text-sm font-medium ${elig.color}`}>{avg}%</span> : <span className="text-xs text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                            {minPct !== null ? `${minPct}%` : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                            {maxPct !== null ? `${maxPct}%` : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium ${elig.color}`}>{elig.label}</span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 

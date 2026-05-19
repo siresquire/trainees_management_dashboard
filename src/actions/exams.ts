@@ -641,6 +641,312 @@ export async function uploadAllQuizScoresFromFile(
   return { imported: totalImported, skipped: totalSkipped, warnings };
 }
 
+// ── Shared: parse raw 2D sheet array into quiz results ────────────────────────
+// Row 0 (index) = column headers: "email" in col A, quiz names in subsequent cols
+// Row 1 (index) = max scores: blank for email col, number for each quiz col
+// Row 2+         = data rows: email, then scores
+
+type AutoCreateResult = {
+  quizzesCreated: number;
+  quizzesUpdated: number;
+  imported: number;
+  skipped: number;
+  warnings: string[];
+};
+
+async function processScoreMatrix(
+  rawData: unknown[][],
+  cohortId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<AutoCreateResult | { error: string }> {
+  if (rawData.length < 3) {
+    return { error: "File needs at least 3 rows: Row 1 = column headers, Row 2 = max scores, Row 3+ = data." };
+  }
+
+  const headerRow = rawData[0] as unknown[];
+  const maxScoreRow = rawData[1] as unknown[];
+  const dataRows = rawData.slice(2);
+
+  // Find email column
+  const emailColIdx = headerRow.findIndex((h) => {
+    const s = String(h ?? "").trim().toLowerCase();
+    return s === "email" || s === "email address";
+  });
+  if (emailColIdx < 0) {
+    return { error: "Could not find an 'email' column in row 1. Ensure column A header is 'email'." };
+  }
+
+  // Quiz columns = every column with a non-blank header that isn't the email or name col
+  const quizCols = headerRow
+    .map((h, idx) => {
+      const name = String(h ?? "").trim();
+      const lower = name.toLowerCase();
+      if (idx === emailColIdx) return null;
+      if (lower === "" || lower === "name" || lower === "name (optional)") return null;
+      const maxRaw = parseFloat(String(maxScoreRow[idx] ?? "100"));
+      return { idx, name, maxScore: isNaN(maxRaw) || maxRaw <= 0 ? 100 : maxRaw };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  if (!quizCols.length) {
+    return { error: "No quiz columns found. Add quiz names as column headers in row 1 (after the email column)." };
+  }
+
+  // Build email → trainee_id map
+  const { data: trainees } = await supabase
+    .from("trainees")
+    .select("id, personal_email, amalitech_email")
+    .eq("cohort_id", cohortId)
+    .is("deleted_at", null);
+
+  const traineeByEmail = new Map<string, string>();
+  for (const t of trainees ?? []) {
+    if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase().trim(), t.id);
+    if (t.amalitech_email) traineeByEmail.set(t.amalitech_email.toLowerCase().trim(), t.id);
+  }
+
+  let quizzesCreated = 0, quizzesUpdated = 0, totalImported = 0, totalSkipped = 0;
+  const warnings: string[] = [];
+
+  for (const col of quizCols) {
+    // Find or create the quiz
+    const { data: existing } = await supabase
+      .from("exam_quizzes")
+      .select("id, max_score")
+      .eq("cohort_id", cohortId)
+      .ilike("quiz_name", col.name)
+      .maybeSingle();
+
+    let quizId: string;
+    if (existing) {
+      if (Math.abs((existing.max_score ?? 100) - col.maxScore) > 0.001) {
+        await supabase.from("exam_quizzes").update({ max_score: col.maxScore }).eq("id", existing.id);
+      }
+      quizId = existing.id;
+      quizzesUpdated++;
+    } else {
+      const { data: created, error: cErr } = await supabase
+        .from("exam_quizzes")
+        .insert({
+          cohort_id:       cohortId,
+          quiz_name:       col.name,
+          max_score:       col.maxScore,
+          focus_type:      "other",
+          week_number:     0,
+          source_platform: "external",
+          created_by:      userId,
+        })
+        .select("id")
+        .single();
+      if (cErr || !created) { warnings.push(`Failed to create quiz "${col.name}": ${cErr?.message}`); continue; }
+      quizId = created.id;
+      quizzesCreated++;
+    }
+
+    // Extract scores for this column
+    const rows: Array<{ email: string; score: number }> = [];
+    for (const row of dataRows) {
+      const arr = row as unknown[];
+      const email = String(arr[emailColIdx] ?? "").trim().toLowerCase();
+      if (!email) continue;
+      const raw = arr[col.idx];
+      if (raw === "" || raw === null || raw === undefined) continue;
+      const score = parseFloat(String(raw));
+      if (isNaN(score) || score < 0) continue;
+      rows.push({ email, score });
+    }
+
+    if (!rows.length) { warnings.push(`No data in column "${col.name}"`); continue; }
+
+    const result = await uploadExamScores(quizId, cohortId, rows);
+    if ("error" in result) {
+      warnings.push(`Error uploading "${col.name}": ${result.error}`);
+    } else {
+      totalImported += result.imported ?? 0;
+      totalSkipped += result.skipped ?? 0;
+    }
+  }
+
+  return { quizzesCreated, quizzesUpdated, imported: totalImported, skipped: totalSkipped, warnings };
+}
+
+// ── Upload scores + auto-create quizzes from new-format file ─────────────────
+// Row 1 = headers (email in col A, quiz names in B, C, …)
+// Row 2 = max scores (blank for email col, number for each quiz col)
+// Row 3+ = data rows
+
+export async function uploadScoresAutoCreate(
+  cohortId: string,
+  formData: FormData,
+): Promise<AutoCreateResult | { error: string }> {
+  const file = formData.get("scores_file") as File | null;
+  if (!file || file.size === 0) return { error: "No file provided." };
+  if (file.size > 10_000_000) return { error: "File too large (max 10 MB)." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  let rawData: unknown[][];
+  try {
+    const buffer   = Buffer.from(await file.arrayBuffer());
+    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+    rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }) as unknown[][];
+  } catch {
+    return { error: "Could not parse the file. Please use the downloaded template." };
+  }
+
+  const result = await processScoreMatrix(rawData, cohortId, supabase, user.id);
+  if (!("error" in result)) revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return result;
+}
+
+// ── Import scores from a URL (Google Sheets or direct file link) ──────────────
+//
+// Formatted mode: URL points to a sheet in new-format layout (row 1 = headers,
+//   row 2 = max scores, row 3+ = data). Quizzes are auto-created.
+//
+// Raw mode: URL points to any sheet (e.g. Google Forms output). Trainer
+//   specifies which column letter has emails, which has scores, quiz name/max.
+
+export async function importScoresFromUrl(
+  cohortId: string,
+  formData: FormData,
+): Promise<AutoCreateResult | { imported: number; skipped: number; warnings: string[] } | { error: string }> {
+  const rawUrl  = (formData.get("url")  as string | null)?.trim() ?? "";
+  const mode    = (formData.get("mode") as string | null) ?? "formatted";
+
+  if (!rawUrl) return { error: "URL is required." };
+
+  // Validate and normalise URL
+  let fetchUrl: string;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") return { error: "Only HTTPS URLs are supported." };
+
+    if (parsed.hostname === "docs.google.com" && parsed.pathname.includes("/spreadsheets/")) {
+      const idM  = parsed.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+      if (!idM) return { error: "Could not extract the Google Sheets ID from the URL." };
+      const gidM = rawUrl.match(/[#&?]gid=(\d+)/);
+      fetchUrl = `https://docs.google.com/spreadsheets/d/${idM[1]}/export?format=csv${gidM ? `&gid=${gidM[1]}` : ""}`;
+    } else {
+      fetchUrl = rawUrl;
+    }
+  } catch {
+    return { error: "Invalid URL. Please check and try again." };
+  }
+
+  // Fetch the data
+  let rawData: unknown[][];
+  try {
+    const resp = await fetch(fetchUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TraineeDashboard/1.0)" },
+      redirect: "follow",
+    });
+    if (!resp.ok) {
+      return { error: `Could not fetch the URL (${resp.status}). For Google Sheets, ensure sharing is set to "Anyone with the link can view".` };
+    }
+    const ct = resp.headers.get("content-type") ?? "";
+    if (ct.includes("text/html")) {
+      return { error: "The URL returned an HTML page instead of a spreadsheet. For Google Sheets, enable public link sharing first." };
+    }
+
+    let wb: ReturnType<typeof XLSX.read>;
+    if (ct.includes("spreadsheetml") || /\.(xlsx|xls)(\?|$)/i.test(fetchUrl)) {
+      const buf = Buffer.from(await resp.arrayBuffer());
+      wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+    } else {
+      const text = await resp.text();
+      wb = XLSX.read(text, { type: "string", cellDates: true });
+    }
+
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }) as unknown[][];
+  } catch (e) {
+    return { error: `Failed to fetch data: ${(e as Error).message}` };
+  }
+
+  if (!rawData.length) return { error: "The sheet appears to be empty." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  if (mode === "raw") {
+    // Raw mode: trainer specifies which columns to use
+    const emailColLetter = ((formData.get("emailCol") as string | null) ?? "A").trim().toUpperCase();
+    const scoreColLetter = ((formData.get("scoreCol") as string | null) ?? "").trim().toUpperCase();
+    const quizName       = ((formData.get("quizName") as string | null) ?? "").trim();
+    const maxScore       = parseFloat((formData.get("maxScore") as string | null) ?? "100") || 100;
+    const startRow       = Math.max(1, parseInt((formData.get("startRow") as string | null) ?? "2")) - 1; // 0-indexed
+
+    if (!scoreColLetter) return { error: "Please specify the score column letter (e.g. C)." };
+    if (!quizName)       return { error: "Please enter a name for this quiz." };
+
+    const colLetterToIdx = (s: string) =>
+      s.split("").reduce((n, ch) => n * 26 + (ch.charCodeAt(0) - 64), 0) - 1;
+
+    const emailIdx = colLetterToIdx(emailColLetter);
+    const scoreIdx = colLetterToIdx(scoreColLetter);
+
+    const rows: Array<{ email: string; score: number }> = [];
+    for (const row of rawData.slice(startRow)) {
+      const arr  = row as unknown[];
+      const email = String(arr[emailIdx] ?? "").trim().toLowerCase();
+      if (!email || email.includes("@") === false) continue;
+      const raw  = arr[scoreIdx];
+      if (raw === "" || raw === null || raw === undefined) continue;
+      const score = parseFloat(String(raw));
+      if (isNaN(score) || score < 0) continue;
+      rows.push({ email, score });
+    }
+
+    if (!rows.length) return { error: "No valid rows found with the specified columns. Check that the column letters are correct and the data starts at the right row." };
+
+    // Find or create quiz
+    const { data: existing } = await supabase
+      .from("exam_quizzes")
+      .select("id")
+      .eq("cohort_id", cohortId)
+      .ilike("quiz_name", quizName)
+      .maybeSingle();
+
+    let quizId: string;
+    if (existing) {
+      quizId = existing.id;
+    } else {
+      const { data: created, error: cErr } = await supabase
+        .from("exam_quizzes")
+        .insert({
+          cohort_id:       cohortId,
+          quiz_name:       quizName,
+          max_score:       maxScore,
+          focus_type:      "other",
+          week_number:     0,
+          source_platform: "external",
+          created_by:      user.id,
+        })
+        .select("id")
+        .single();
+      if (cErr || !created) return { error: `Could not create quiz: ${cErr?.message}` };
+      quizId = created.id;
+    }
+
+    const result = await uploadExamScores(quizId, cohortId, rows);
+    if ("error" in result) return result as { error: string };
+    revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+    const ok = result as { imported: number; skipped: number; errors: string[] };
+    return { imported: ok.imported ?? 0, skipped: ok.skipped ?? 0, warnings: ok.errors ?? [] };
+  }
+
+  // Formatted mode: same as file upload
+  const result = await processScoreMatrix(rawData, cohortId, supabase, user.id);
+  if (!("error" in result)) revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return result;
+}
+
 // ── Upload exam scores from CSV or XLSX file ──────────────────────────────────
 //
 // Accepts both .csv and .xlsx uploads server-side so we don't need client-side
