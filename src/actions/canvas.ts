@@ -258,7 +258,6 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
       full_name:      e.user!.name!,
       personal_email: e.user!.login_id!.toLowerCase(),
       status:         "active" as const,
-      cohort_type:    cohort.level ?? "practitioner",
       serial_no:      i + 1,
     }));
 
