@@ -52,50 +52,55 @@ export async function inviteStaff(
   const resendKey = process.env.RESEND_API_KEY;
 
   if (resendKey) {
-    // Generate invite link, send via Resend
-    const { data: linkData, error: linkErr } = await (svc.auth.admin as any).generateLink({
+    // Try invite link first; fall back to magic link if user already exists
+    let inviteLink: string | null = null;
+
+    const { data: inviteData, error: inviteErr } = await (svc.auth.admin as any).generateLink({
       type: "invite",
       email,
-      options: {
-        redirectTo: `${appUrl}/auth/accept-invite`,
-        data: { full_name, role },
-      },
+      options: { redirectTo: `${appUrl}/auth/accept-invite`, data: { full_name, role } },
     });
 
-    if (linkErr && (linkErr as any).code !== "email_exists") {
-      return { error: `Failed to generate invite link: ${linkErr.message}` };
+    if (!inviteErr) {
+      inviteLink = inviteData?.properties?.action_link ?? inviteData?.action_link ?? null;
+    } else if ((inviteErr as any).code === "email_exists" || inviteErr.status === 422) {
+      // User already exists — generate a magic link so they can sign in and set a password
+      const { data: mlData, error: mlErr } = await (svc.auth.admin as any).generateLink({
+        type: "magiclink",
+        email,
+        options: { redirectTo: `${appUrl}/auth/accept-invite` },
+      });
+      if (mlErr) return { error: `Failed to generate sign-in link: ${mlErr.message}` };
+      inviteLink = mlData?.properties?.action_link ?? mlData?.action_link ?? null;
+    } else {
+      return { error: `Failed to generate invite link: ${inviteErr.message}` };
     }
 
-    if (linkData) {
-      const inviteLink: string = linkData?.properties?.action_link ?? linkData?.action_link;
-      const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Amalitech Dashboard <onboarding@resend.dev>";
+    if (!inviteLink) return { error: "Failed to generate invite link (empty response)" };
 
-      const emailRes = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: fromEmail,
-          to: email,
-          subject: "You've been invited to Amalitech Training Dashboard",
-          html: `
-            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
-              <div style="width:40px;height:40px;background:#f97316;border-radius:10px;margin-bottom:20px"></div>
-              <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
-              <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been invited as a <strong>${role.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
-              <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
-              <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this, you can ignore this email.</p>
-            </div>
-          `,
-        }),
-      });
+    const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Amalitech Dashboard <onboarding@resend.dev>";
+    const emailRes = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: email,
+        subject: "You've been invited to Amalitech Training Dashboard",
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+            <div style="width:40px;height:40px;background:#f97316;border-radius:10px;margin-bottom:20px"></div>
+            <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
+            <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been invited as a <strong>${role.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
+            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
+            <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this, you can ignore this email.</p>
+          </div>
+        `,
+      }),
+    });
 
-      if (!emailRes.ok) {
-        const body = await emailRes.json().catch(() => ({}));
-        return { error: `Failed to send invite email: ${(body as { message?: string }).message ?? emailRes.status}` };
-      }
+    if (!emailRes.ok) {
+      const body = await emailRes.json().catch(() => ({}));
+      return { error: `Failed to send invite email: ${(body as { message?: string }).message ?? emailRes.status}` };
     }
   } else {
     // Fallback: Supabase email (requires SMTP in Supabase dashboard)
