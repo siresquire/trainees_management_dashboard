@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
+import type { ModelBundle } from "@/lib/regression";
 import {
   createExamQuiz,
   deleteExamQuiz,
@@ -17,6 +18,12 @@ import {
 } from "@/actions/exams";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+type TraineeFeatureStat = {
+  traineeId:  string;
+  labRatePct: number | null;
+  kcRatePct:  number | null;
+};
 
 type Trainee = {
   id: string;
@@ -135,20 +142,73 @@ function fmtShortDate(iso: string) {
   });
 }
 
-/** Maps quiz avg % to an exam pass-probability descriptor, given the exam's pass threshold % */
-function passPrediction(avgPct: number | null, thresholdPct: number) {
+/** Heuristic fallback — used when no regression model is available */
+function heuristicPrediction(avgPct: number | null, thresholdPct: number) {
   if (avgPct === null)
-    return { label: "No data", detail: "No quiz scores available", color: "text-slate-400", bar: 0 };
+    return { label: "No data",    detail: "No quiz scores available",                              color: "text-slate-400",  bar: 0,  source: "heuristic" as const };
   const gap = avgPct - thresholdPct;
   if (gap >= 15)
-    return { label: "Very likely", detail: `${avgPct}% avg — ${gap}pp above pass threshold`, color: "text-green-600", bar: 90 };
+    return { label: "Very likely", detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)}pp above threshold`, color: "text-green-600",   bar: 90, source: "heuristic" as const };
   if (gap >= 5)
-    return { label: "Likely",      detail: `${avgPct}% avg — ${gap}pp above pass threshold`, color: "text-emerald-600", bar: 70 };
+    return { label: "Likely",      detail: `${avgPct.toFixed(1)}% avg — ${gap.toFixed(1)}pp above threshold`, color: "text-emerald-600", bar: 70, source: "heuristic" as const };
   if (gap >= -5)
-    return { label: "Borderline",  detail: `${avgPct}% avg — within 5pp of threshold`,       color: "text-amber-600",  bar: 50 };
+    return { label: "Borderline",  detail: `${avgPct.toFixed(1)}% avg — within 5pp of threshold`,             color: "text-amber-600",  bar: 50, source: "heuristic" as const };
   if (gap >= -15)
-    return { label: "At risk",     detail: `${avgPct}% avg — ${Math.abs(gap)}pp below threshold`, color: "text-orange-600", bar: 30 };
-  return   { label: "Unlikely",   detail: `${avgPct}% avg — ${Math.abs(gap)}pp below threshold`, color: "text-red-600",    bar: 12 };
+    return { label: "At risk",     detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)}pp below threshold`, color: "text-orange-600", bar: 30, source: "heuristic" as const };
+  return   { label: "Unlikely",   detail: `${avgPct.toFixed(1)}% avg — ${Math.abs(gap).toFixed(1)}pp below threshold`, color: "text-red-600",    bar: 12, source: "heuristic" as const };
+}
+
+/** Regression-based prediction — preferred when model is available */
+function regressionPrediction(
+  bundle: ModelBundle,
+  quizAvgPct: number | null,
+  labRatePct: number | null,
+  kcRatePct:  number | null,
+  thresholdPct: number,
+) {
+  if (!bundle || (!bundle.linear && !bundle.logistic)) {
+    return heuristicPrediction(quizAvgPct, thresholdPct);
+  }
+  if (quizAvgPct === null) {
+    return { label: "No data", detail: "No quiz scores available", color: "text-slate-400", bar: 0, source: "heuristic" as const };
+  }
+
+  // Impute missing lab/KC rates with the quiz average as a neutral proxy
+  const feats = {
+    quizAvgPct,
+    labRatePct: labRatePct ?? quizAvgPct,
+    kcRatePct:  kcRatePct  ?? quizAvgPct,
+  };
+  const x = [1, feats.quizAvgPct / 100, feats.labRatePct / 100, feats.kcRatePct / 100];
+
+  // ── Prefer logistic (direct P(pass)) ───────────────────────────────────────
+  if (bundle.logistic) {
+    const z    = x.reduce((s, v, i) => s + v * bundle.logistic!.coefficients[i], 0);
+    const prob = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z))));
+    const pct  = Math.round(prob * 100);
+    const acc  = Math.round(bundle.logistic.accuracy * 100);
+    const detail = `${pct}% pass probability · logistic model (${bundle.trainingSize} trainees, ${acc}% train accuracy)`;
+
+    if (prob >= 0.80) return { label: "Very likely", detail, color: "text-green-600",   bar: pct, source: "logistic" as const };
+    if (prob >= 0.65) return { label: "Likely",       detail, color: "text-emerald-600", bar: pct, source: "logistic" as const };
+    if (prob >= 0.40) return { label: "Borderline",   detail, color: "text-amber-600",   bar: pct, source: "logistic" as const };
+    if (prob >= 0.20) return { label: "At risk",      detail, color: "text-orange-600",  bar: pct, source: "logistic" as const };
+    return               { label: "Unlikely",         detail, color: "text-red-600",     bar: pct, source: "logistic" as const };
+  }
+
+  // ── Linear fallback: predict score then threshold ──────────────────────────
+  const predicted = Math.max(100, Math.min(1000, x.reduce((s, v, i) => s + v * bundle.linear!.coefficients[i], 0)));
+  const threshold = thresholdPct * 10; // e.g. 70% → 700
+  const gap       = predicted - threshold;
+  const r2        = bundle.linear!.rSquared;
+  const detail    = `Predicted score: ${Math.round(predicted)} · linear model (N=${bundle.trainingSize}, R²=${r2.toFixed(2)})`;
+  const bar       = Math.round(Math.min(95, Math.max(5, (predicted / 1000) * 100)));
+
+  if (gap >= 80)   return { label: "Very likely", detail, color: "text-green-600",   bar, source: "linear" as const };
+  if (gap >= 25)   return { label: "Likely",       detail, color: "text-emerald-600", bar, source: "linear" as const };
+  if (gap >= -25)  return { label: "Borderline",   detail, color: "text-amber-600",   bar, source: "linear" as const };
+  if (gap >= -80)  return { label: "At risk",      detail, color: "text-orange-600",  bar, source: "linear" as const };
+  return             { label: "Unlikely",          detail, color: "text-red-600",     bar, source: "linear" as const };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -163,6 +223,8 @@ export default function ExamsClient({
   vouchers,
   pooledVouchers,
   outcomes,
+  modelBundle,
+  traineeFeatures,
 }: {
   cohortId:        string;
   cohortLevel:     string;
@@ -173,6 +235,8 @@ export default function ExamsClient({
   vouchers:        Voucher[];
   pooledVouchers:  PooledVoucher[];
   outcomes:        Outcome[];
+  modelBundle:     ModelBundle;
+  traineeFeatures: TraineeFeatureStat[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -216,6 +280,11 @@ export default function ExamsClient({
       pooledMap.set(p.trainee_id, { id: p.id, voucher_code: p.voucher_code });
     }
   }
+
+  // Trainee completion features (for regression prediction)
+  const featuresMap = new Map<string, { labRatePct: number | null; kcRatePct: number | null }>(
+    traineeFeatures.map((f) => [f.traineeId, { labRatePct: f.labRatePct, kcRatePct: f.kcRatePct }])
+  );
 
   // ── Quiz Scores tab state ────────────────────────────────────────────────────
   const [showCreateQuiz, setShowCreateQuiz] = useState(false);
@@ -1206,18 +1275,49 @@ export default function ExamsClient({
       {activeTab === "analytics" && (
         <div className="space-y-5">
 
-          {/* Summary card */}
+          {/* Model status card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <div className="flex items-start gap-4 flex-wrap">
               <div className="flex-1 min-w-[200px]">
-                <h3 className="text-sm font-semibold text-slate-900">Pass Probability Analysis</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Based on quiz averages vs. the {resolvedExamType} pass threshold of{" "}
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-sm font-semibold text-slate-900">Pass Probability Analysis</h3>
+                  {modelBundle && (modelBundle.logistic || modelBundle.linear) ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                      {modelBundle.logistic ? "Logistic regression" : "Linear regression"} · N={modelBundle.trainingSize}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                      Rule-based (no historical data yet)
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Target: {resolvedExamType} · Pass threshold:{" "}
                   <span className="font-medium text-slate-700">
                     {PASS_THRESHOLD[resolvedExamType] ?? 700}/1000 ({Math.round(thresholdPct)}%)
-                  </span>.
-                  Predictions are indicative — actual exam conditions may vary.
+                  </span>
+                  {modelBundle && modelBundle.logistic && (
+                    <span className="ml-2 text-violet-600">
+                      · Train accuracy {Math.round(modelBundle.logistic.accuracy * 100)}%
+                    </span>
+                  )}
+                  {modelBundle && !modelBundle.logistic && modelBundle.linear && (
+                    <span className="ml-2 text-violet-600">
+                      · R² = {modelBundle.linear.rSquared.toFixed(2)}
+                    </span>
+                  )}
+                  {(!modelBundle || (!modelBundle.logistic && !modelBundle.linear)) && (
+                    <span className="ml-2 text-slate-400">
+                      · Predictions activate once {10} same-level trainees have recorded exam outcomes
+                    </span>
+                  )}
                 </p>
+                {modelBundle && (modelBundle.logistic || modelBundle.linear) && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Features: mock exam average · lab completion · KC completion.
+                    Trained on all {modelBundle.trainingSize} same-level trainees with recorded outcomes.
+                  </p>
+                )}
               </div>
               <div className="flex gap-4 text-center flex-shrink-0">
                 {(["Very likely", "Likely", "Borderline", "At risk", "Unlikely"] as const).map((label) => {
@@ -1234,8 +1334,9 @@ export default function ExamsClient({
                       const best = bestScoreMap.get(`${t.id}:${q.id}`);
                       if (best !== undefined) pcts.push((best / q.max_score) * 100);
                     }
-                    const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
-                    return passPrediction(avg, thresholdPct).label === label;
+                    const avg  = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+                    const feat = featuresMap.get(t.id);
+                    return regressionPrediction(modelBundle, avg, feat?.labRatePct ?? null, feat?.kcRatePct ?? null, thresholdPct).label === label;
                   }).length;
                   return (
                     <div key={label}>
@@ -1263,9 +1364,11 @@ export default function ExamsClient({
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-24">Quiz Avg</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-36">Pass Probability</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Confidence Bar</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-20">Quiz Avg</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">Lab %</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-16">KC %</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-36">Prediction</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[100px]">Confidence</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-32">Actual Outcome</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Detail</th>
                   </tr>
@@ -1278,50 +1381,73 @@ export default function ExamsClient({
                         const best = bestScoreMap.get(`${t.id}:${q.id}`);
                         if (best !== undefined) pcts.push((best / q.max_score) * 100);
                       }
-                      const avg      = pcts.length
-                        ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)
+                      const quizAvg = pcts.length
+                        ? pcts.reduce((a, b) => a + b, 0) / pcts.length
                         : null;
-                      const pred     = passPrediction(avg, thresholdPct);
-                      const outcomes = outcomeMap.get(t.id) ?? [];
-                      const latestOutcome = outcomes.length
-                        ? outcomes[outcomes.length - 1]
-                        : null;
-                      return { t, avg, pred, latestOutcome };
+                      const feat    = featuresMap.get(t.id);
+                      const pred    = regressionPrediction(
+                        modelBundle,
+                        quizAvg,
+                        feat?.labRatePct ?? null,
+                        feat?.kcRatePct  ?? null,
+                        thresholdPct,
+                      );
+                      const tOutcomes     = outcomeMap.get(t.id) ?? [];
+                      const latestOutcome = tOutcomes.length ? tOutcomes[tOutcomes.length - 1] : null;
+                      return { t, quizAvg, pred, latestOutcome, feat };
                     })
-                    // Sort: no-data last; otherwise by avg desc
                     .sort((a, b) => {
-                      if (a.avg === null && b.avg === null) return 0;
-                      if (a.avg === null) return 1;
-                      if (b.avg === null) return -1;
-                      return b.avg - a.avg;
+                      if (a.quizAvg === null && b.quizAvg === null) return 0;
+                      if (a.quizAvg === null) return 1;
+                      if (b.quizAvg === null) return -1;
+                      return b.quizAvg - a.quizAvg;
                     })
-                    .map(({ t, avg, pred, latestOutcome }) => (
+                    .map(({ t, quizAvg, pred, latestOutcome, feat }) => (
                       <tr key={t.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                         <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
                         <td className="px-3 py-3 text-center tabular-nums">
-                          {avg !== null ? (
-                            <span className={`text-sm font-semibold ${scoreTextColor(avg)}`}>{avg}%</span>
+                          {quizAvg !== null ? (
+                            <span className={`text-sm font-semibold ${scoreTextColor(quizAvg)}`}>
+                              {quizAvg.toFixed(1)}%
+                            </span>
                           ) : (
                             <span className="text-xs text-slate-300">—</span>
                           )}
                         </td>
+                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                          {feat?.labRatePct !== null && feat?.labRatePct !== undefined
+                            ? `${feat.labRatePct.toFixed(0)}%`
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-3 text-center tabular-nums text-xs text-slate-500">
+                          {feat?.kcRatePct !== null && feat?.kcRatePct !== undefined
+                            ? `${feat.kcRatePct.toFixed(0)}%`
+                            : <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="px-4 py-3">
-                          <span className={`text-sm font-semibold ${pred.color}`}>{pred.label}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-sm font-semibold ${pred.color}`}>{pred.label}</span>
+                            {pred.source !== "heuristic" && (
+                              <span className="text-[9px] font-medium text-violet-500 bg-violet-50 border border-violet-200 px-1 py-0.5 rounded uppercase tracking-wide">
+                                {pred.source}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 min-w-[80px]">
+                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 min-w-[70px]">
                               <div
                                 className={`h-1.5 rounded-full transition-all ${
-                                  pred.bar >= 70 ? "bg-green-500"
-                                  : pred.bar >= 50 ? "bg-amber-400"
+                                  pred.bar >= 65 ? "bg-green-500"
+                                  : pred.bar >= 40 ? "bg-amber-400"
                                   : "bg-red-400"
                                 }`}
                                 style={{ width: `${pred.bar}%` }}
                               />
                             </div>
-                            <span className="text-xs text-slate-400 tabular-nums w-8">{pred.bar}%</span>
+                            <span className="text-xs text-slate-400 tabular-nums w-7">{pred.bar}%</span>
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -1331,14 +1457,16 @@ export default function ExamsClient({
                               : latestOutcome.outcome === "failed" ? "bg-red-100 text-red-700"
                               : "bg-amber-100 text-amber-700"
                             }`}>
-                              {latestOutcome.outcome === "passed" ? "✓ Passed" : latestOutcome.outcome === "failed" ? "✗ Failed" : "⏳ Pending"}
+                              {latestOutcome.outcome === "passed" ? "✓ Passed"
+                               : latestOutcome.outcome === "failed" ? "✗ Failed"
+                               : "⏳ Pending"}
                               {latestOutcome.actual_score ? ` · ${latestOutcome.actual_score}` : ""}
                             </span>
                           ) : (
                             <span className="text-xs text-slate-300">Not taken</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{pred.detail}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px]">{pred.detail}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -1349,14 +1477,11 @@ export default function ExamsClient({
           {/* Insight cards */}
           {trainees.length > 0 && quizzes.length > 0 && (() => {
             const withData = trainees.filter((t) => {
-              const pcts: number[] = [];
               for (const q of quizzes) {
-                const best = bestScoreMap.get(`${t.id}:${q.id}`);
-                if (best !== undefined) pcts.push((best / q.max_score) * 100);
+                if (bestScoreMap.has(`${t.id}:${q.id}`)) return true;
               }
-              return pcts.length > 0;
+              return false;
             });
-
             if (!withData.length) return null;
 
             const avgs = withData.map((t) => {
@@ -1365,19 +1490,19 @@ export default function ExamsClient({
                 const best = bestScoreMap.get(`${t.id}:${q.id}`);
                 if (best !== undefined) pcts.push((best / q.max_score) * 100);
               }
-              return Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length);
+              return pcts.reduce((a, b) => a + b, 0) / pcts.length;
             });
 
-            const cohortAvg  = Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length);
+            const cohortAvg  = avgs.reduce((a, b) => a + b, 0) / avgs.length;
             const readyCount = avgs.filter((a) => a >= thresholdPct).length;
-            const topTrainee = trainees[avgs.indexOf(Math.max(...avgs))];
-            const needsHelp  = trainees.filter((_, i) => avgs[i] < thresholdPct - 10);
+            const topTrainee = withData[avgs.indexOf(Math.max(...avgs))];
+            const needsHelp  = withData.filter((_, i) => avgs[i] < thresholdPct - 10);
 
             return (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-white rounded-2xl border border-slate-200 p-4">
                   <p className="text-xs text-slate-500 mb-1">Cohort Average</p>
-                  <p className={`text-2xl font-bold tabular-nums ${scoreTextColor(cohortAvg)}`}>{cohortAvg}%</p>
+                  <p className={`text-2xl font-bold tabular-nums ${scoreTextColor(cohortAvg)}`}>{cohortAvg.toFixed(1)}%</p>
                   <p className="text-xs text-slate-400 mt-1">
                     Target: {Math.round(thresholdPct)}% to pass {resolvedExamType}
                   </p>
@@ -1388,7 +1513,7 @@ export default function ExamsClient({
                     {readyCount}<span className="text-base font-normal text-slate-400"> / {withData.length}</span>
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    {Math.round((readyCount / withData.length) * 100)}% of cohort scoring ≥ {Math.round(thresholdPct)}%
+                    {Math.round((readyCount / withData.length) * 100)}% scoring ≥ {Math.round(thresholdPct)}%
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 p-4">
@@ -1399,16 +1524,16 @@ export default function ExamsClient({
                         {needsHelp.length} trainee{needsHelp.length !== 1 ? "s" : ""}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Scoring &gt; 10pp below pass threshold
+                        Scoring &gt;10pp below threshold
                         {needsHelp.length <= 3 && ": " + needsHelp.map((t) => t.full_name.split(" ")[0]).join(", ")}
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm font-semibold text-green-600 mt-1">All within range 🎉</p>
+                    <p className="text-sm font-semibold text-green-600 mt-1">All within range</p>
                   )}
                   {topTrainee && (
                     <p className="text-xs text-slate-400 mt-1">
-                      Top performer: <span className="text-slate-600 font-medium">{topTrainee.full_name.split(" ")[0]}</span> ({Math.max(...avgs)}%)
+                      Top: <span className="text-slate-600 font-medium">{topTrainee.full_name.split(" ")[0]}</span> ({Math.max(...avgs).toFixed(1)}%)
                     </p>
                   )}
                 </div>
@@ -1416,10 +1541,10 @@ export default function ExamsClient({
             );
           })()}
 
-          {(!quizzes.length) && (
+          {!quizzes.length && (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 py-14 text-center">
               <p className="text-sm text-slate-400">No quiz data yet.</p>
-              <p className="text-xs text-slate-400 mt-1">Add quizzes and upload scores to see pass predictions.</p>
+              <p className="text-xs text-slate-400 mt-1">Add quizzes and upload scores to see predictions.</p>
             </div>
           )}
         </div>
