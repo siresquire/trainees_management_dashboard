@@ -74,12 +74,35 @@ export default async function ExamsPage({
         .order("attempt_no", { ascending: true })
     : { data: [] };
 
+  // ── Current-cohort completion data for analytics display ─────────────────────
+  // Use the same proven RPC as the trainees list; authenticated client passes the
+  // RPC's own auth check, and SECURITY DEFINER bypasses RLS inside the function.
+  const cohortLevel = cohort?.level ?? "practitioner";
+
+  const [
+    { data: completionSummary },
+    { data: currentCohortTasks },
+  ] = await Promise.all([
+    supabase.rpc("get_cohort_completion_summary", { p_cohort_id: id }),
+    supabase.from("cohort_week_tasks").select("id, task_type").eq("cohort_id", id),
+  ]);
+
+  const totalLabTasks = (currentCohortTasks ?? []).filter((t) => t.task_type === "lab").length;
+  const totalKcTasks  = (currentCohortTasks ?? []).filter((t) => t.task_type === "kc").length;
+
+  const labPctByTrainee = new Map<string, number>();
+  const kcPctByTrainee  = new Map<string, number>();
+  for (const row of completionSummary ?? []) {
+    const tid = String(row.trainee_id);
+    if (totalLabTasks > 0) labPctByTrainee.set(tid, (Number(row.lab_count) / totalLabTasks) * 100);
+    if (totalKcTasks  > 0) kcPctByTrainee.set(tid,  (Number(row.kc_count)  / totalKcTasks)  * 100);
+  }
+
   // ── Regression: build training set from ALL same-level cohorts ──────────────
   // Use service client for cross-cohort queries so RLS on other cohorts doesn't
   // block historical data needed for the regression model.
 
   const svc = createServiceClient();
-  const cohortLevel = cohort?.level ?? "practitioner";
 
   // 1. All cohort IDs of the same level (including the current one)
   const { data: sameLevelCohorts } = await svc
@@ -254,15 +277,14 @@ export default async function ExamsPage({
   const modelBundle: ModelBundle = fitModels(trainingPoints);
 
   // ── Current-cohort trainee features (for prediction) ────────────────────────
+  // Use the RPC-derived maps instead of extractFeatures to avoid the PostgREST
+  // max-rows cap that truncated allCompletions for the current cohort.
 
-  const traineeFeatures = traineeIds.map((tid) => {
-    const { labRatePct, kcRatePct } = extractFeatures(tid, id);
-    return {
-      traineeId:  tid,
-      labRatePct: labRatePct  ?? null,
-      kcRatePct:  kcRatePct   ?? null,
-    };
-  });
+  const traineeFeatures = traineeIds.map((tid) => ({
+    traineeId:  tid,
+    labRatePct: labPctByTrainee.has(tid) ? labPctByTrainee.get(tid)! : (totalLabTasks > 0 ? 0 : null),
+    kcRatePct:  kcPctByTrainee.has(tid)  ? kcPctByTrainee.get(tid)!  : (totalKcTasks  > 0 ? 0 : null),
+  }));
 
   return (
     <ExamsClient
