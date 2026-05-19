@@ -6,6 +6,7 @@ import WeekTabs from "@/app/trainee/dashboard/WeekTabs";
 import GraduationToggle from "@/app/trainer/cohorts/[id]/GraduationToggle";
 import TraineeEditForm from "./TraineeEditForm";
 import TraineeStatusActions from "./TraineeStatusActions";
+import TraineeTempPasswordPanel from "./TraineeTempPasswordPanel";
 
 export default async function TraineeProfilePage({
   params,
@@ -42,7 +43,7 @@ export default async function TraineeProfilePage({
   // Trainee record (extended for edit form + status actions)
   const { data: trainee } = await supabase
     .from("trainees")
-    .select("id, full_name, personal_email, amalitech_email, phone, gender, town, region, university, status, serial_no, graduated, deleted_at, cohorts(name, level)")
+    .select("id, full_name, personal_email, amalitech_email, phone, gender, town, region, university, status, serial_no, graduated, deleted_at, user_id, cohorts(name, level)")
     .eq("id", traineeId)
     .eq("cohort_id", cohortId)
     .single();
@@ -159,6 +160,13 @@ export default async function TraineeProfilePage({
           cohortId={cohortId}
         />
       </div>
+
+      {/* Temporary password */}
+      <TraineeTempPasswordPanel
+        traineeId={traineeId}
+        cohortId={cohortId}
+        hasAccount={!!trainee.user_id}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

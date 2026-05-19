@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import ProfileEditForm from "./ProfileEditForm";
 import EmailChangeForm from "./EmailChangeForm";
+import ChangePasswordForm from "./ChangePasswordForm";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -59,6 +60,13 @@ export default async function ProfilePage() {
       <div className="bg-white rounded-2xl border border-slate-200 p-5">
         <h2 className="text-sm font-semibold text-slate-900 mb-4">Edit profile</h2>
         <ProfileEditForm fullName={profile.full_name} />
+      </div>
+
+      {/* Change password */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <h2 className="text-sm font-semibold text-slate-900 mb-1">Change password</h2>
+        <p className="text-xs text-slate-500 mb-4">Set a new password for your account.</p>
+        <ChangePasswordForm />
       </div>
 
       {/* Email change — hidden for Super Admin (security: rerouting SA email = account takeover) */}

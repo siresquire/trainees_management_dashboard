@@ -1,13 +1,26 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useRef } from "react";
 import { inviteStaff } from "@/actions/staff";
 
 export default function InviteStaffForm() {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [state, action, isPending] = useActionState(inviteStaff, null);
+  const linkRef = useRef<HTMLInputElement>(null);
 
-  if (state?.success && open) setOpen(false);
+  function copyLink() {
+    if (!state?.inviteLink) return;
+    navigator.clipboard.writeText(state.inviteLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function handleClose() {
+    setOpen(false);
+    setCopied(false);
+  }
 
   if (!open) {
     return (
@@ -23,12 +36,86 @@ export default function InviteStaffForm() {
     );
   }
 
+  // Success state — email sent, show the link as a fallback
+  if (state?.success && state.inviteLink) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-green-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-slate-900">Invitation sent!</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          An email was sent. If it doesn&apos;t arrive, share this link directly with the invitee:
+        </p>
+        <div className="flex gap-2">
+          <input
+            ref={linkRef}
+            readOnly
+            value={state.inviteLink}
+            className="flex-1 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-600 bg-slate-50 focus:outline-none"
+            onFocus={(e) => e.target.select()}
+          />
+          <button
+            onClick={copyLink}
+            className="flex-shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <p className="text-xs text-amber-600 mt-2">This link expires in 24 hours and is single-use.</p>
+        <button
+          onClick={handleClose}
+          className="mt-4 w-full text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg py-2 transition-colors"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  // Error state where we also have a link to share
+  if (state?.error && state.inviteLink) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+          {state.error}
+        </p>
+        <div className="flex gap-2">
+          <input
+            ref={linkRef}
+            readOnly
+            value={state.inviteLink}
+            className="flex-1 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-600 bg-slate-50 focus:outline-none"
+            onFocus={(e) => e.target.select()}
+          />
+          <button
+            onClick={copyLink}
+            className="flex-shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <p className="text-xs text-amber-600 mt-2">This link expires in 24 hours and is single-use.</p>
+        <button
+          onClick={handleClose}
+          className="mt-4 w-full text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg py-2 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-slate-900">Invite Staff Member</h3>
         <button
-          onClick={() => setOpen(false)}
+          onClick={handleClose}
           className="text-slate-400 hover:text-slate-600"
           aria-label="Close"
         >
@@ -79,7 +166,7 @@ export default function InviteStaffForm() {
           </select>
         </div>
 
-        {state?.error && (
+        {state?.error && !state.inviteLink && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {state.error}
           </p>
@@ -95,7 +182,7 @@ export default function InviteStaffForm() {
           </button>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={handleClose}
             className="px-4 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg"
           >
             Cancel

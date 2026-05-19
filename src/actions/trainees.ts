@@ -1,6 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
+import { randomBytes } from "crypto";
 import { createClient as createSupabaseJS } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -474,4 +475,42 @@ export async function toggleGraduation(
   revalidatePath(`/trainer/cohorts/${trainee.cohort_id}`);
   revalidatePath(`/trainer/cohorts/${trainee.cohort_id}/trainees/${traineeId}`);
   return { success: true };
+}
+
+// ── Trainer: set a temp password for a trainee in their cohort ────────────
+
+export async function setTraineeTempPassword(
+  traineeId: string,
+  cohortId: string
+): Promise<{ tempPassword?: string; error?: string }> {
+  const supabase = await createClient();
+  const svc      = createServiceClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+
+  const isSA = profile?.role === "super_admin";
+  if (!isSA) {
+    const { data: access } = await supabase
+      .from("cohort_access").select("role")
+      .eq("cohort_id", cohortId).eq("trainer_id", user.id).single();
+    if (!access) return { error: "No access to this cohort." };
+  }
+
+  const { data: trainee } = await supabase
+    .from("trainees").select("user_id").eq("id", traineeId).eq("cohort_id", cohortId).single();
+  if (!trainee) return { error: "Trainee not found." };
+  if (!trainee.user_id) return { error: "This trainee hasn't created an account yet. Invite them first." };
+
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  const tempPassword = Array.from(bytes).map((b) => chars[(b as number) % chars.length]).join("");
+
+  const { error } = await svc.auth.admin.updateUserById(trainee.user_id, { password: tempPassword });
+  if (error) return { error: error.message };
+
+  return { tempPassword };
 }

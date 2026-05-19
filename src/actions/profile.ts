@@ -2,7 +2,14 @@
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { randomBytes } from "crypto";
 import { z } from "zod";
+
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  return Array.from(bytes).map((b) => chars[b % chars.length]).join("");
+}
 
 // ── Update own profile (trainer / QC / SA) ────────────────────────────────
 
@@ -276,4 +283,55 @@ export async function denyEmailChange(
 
   revalidatePath("/superadmin/dashboard");
   return { success: true };
+}
+
+// ── Change own password ───────────────────────────────────────────────────
+
+export type ChangePasswordState = { error?: string; success?: boolean } | null;
+
+export async function changeMyPassword(
+  _prev: ChangePasswordState,
+  formData: FormData
+): Promise<ChangePasswordState> {
+  const password = (formData.get("password") ?? "") as string;
+  const confirm  = (formData.get("confirm_password") ?? "") as string;
+
+  if (password.length < 8) return { error: "Password must be at least 8 characters." };
+  if (password !== confirm)  return { error: "Passwords do not match." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  return { success: true };
+}
+
+// ── SA: set a temp password for a staff member ────────────────────────────
+
+export async function setStaffTempPassword(
+  targetId: string
+): Promise<{ tempPassword?: string; error?: string }> {
+  const supabase = await createClient();
+  const svc      = createServiceClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: myProfile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+  if (myProfile?.role !== "super_admin") return { error: "Super Admin only." };
+
+  const { data: target } = await supabase
+    .from("profiles").select("role").eq("id", targetId)
+    .in("role", ["trainer", "quiz_creator"]).single();
+  if (!target) return { error: "Staff member not found." };
+
+  const tempPassword = generateTempPassword();
+  const { error } = await svc.auth.admin.updateUserById(targetId, { password: tempPassword });
+  if (error) return { error: error.message };
+
+  return { tempPassword };
 }

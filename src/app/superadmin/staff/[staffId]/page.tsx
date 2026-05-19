@@ -3,6 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import SAStaffEditForm from "./SAStaffEditForm";
 import SAEmailForm from "./SAEmailForm";
+import SAStaffTempPasswordPanel from "./SAStaffTempPasswordPanel";
+import SARemoveStaffPanel from "./SARemoveStaffPanel";
 
 export default async function SAStaffEditPage({
   params,
@@ -80,6 +82,9 @@ export default async function SAStaffEditPage({
         <SAEmailForm targetId={profile.id} />
       </div>
 
+      {/* Temporary password */}
+      <SAStaffTempPasswordPanel targetId={profile.id} />
+
       {/* Cohort assignments */}
       {(assignments?.length ?? 0) > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
@@ -118,6 +123,8 @@ export default async function SAStaffEditPage({
           </div>
         </div>
       )}
+      {/* Remove account (for duplicate cleanup) */}
+      <SARemoveStaffPanel targetId={profile.id} fullName={profile.full_name} />
     </div>
   );
 }

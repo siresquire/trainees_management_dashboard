@@ -26,7 +26,7 @@ const InviteSchema = z.object({
   role: z.enum(["trainer", "quiz_creator"]),
 });
 
-export type InviteStaffState = { errors?: Record<string, string[]>; error?: string; success?: boolean } | null;
+export type InviteStaffState = { errors?: Record<string, string[]>; error?: string; success?: boolean; inviteLink?: string } | null;
 
 export async function inviteStaff(
   _prev: InviteStaffState,
@@ -52,9 +52,11 @@ export async function inviteStaff(
   const resendKey = process.env.RESEND_API_KEY;
 
   if (resendKey) {
-    // Try invite link first; fall back to magic link if user already exists
+    // Check if a user with this email already exists to avoid creating a duplicate account
     let inviteLink: string | null = null;
+    let isExistingUser = false;
 
+    // Try invite link first — if the email already has an account Supabase returns email_exists
     const { data: inviteData, error: inviteErr } = await (svc.auth.admin as any).generateLink({
       type: "invite",
       email,
@@ -64,7 +66,8 @@ export async function inviteStaff(
     if (!inviteErr) {
       inviteLink = inviteData?.properties?.action_link ?? inviteData?.action_link ?? null;
     } else if ((inviteErr as any).code === "email_exists" || inviteErr.status === 422) {
-      // User already exists — generate a magic link so they can sign in and set a password
+      isExistingUser = true;
+      // User already exists — generate a magic link so they can sign in
       const { data: mlData, error: mlErr } = await (svc.auth.admin as any).generateLink({
         type: "magiclink",
         email,
@@ -90,8 +93,8 @@ export async function inviteStaff(
           <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
             <div style="width:40px;height:40px;background:#f97316;border-radius:10px;margin-bottom:20px"></div>
             <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
-            <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been invited as a <strong>${role.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
-            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
+            <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been ${isExistingUser ? "re-invited" : "invited"} as a <strong>${role.replace("_", " ")}</strong>. Click the button below to ${isExistingUser ? "sign in to" : "set up"} your account.</p>
+            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">${isExistingUser ? "Sign in to dashboard" : "Accept invitation"}</a>
             <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this, you can ignore this email.</p>
           </div>
         `,
@@ -100,8 +103,15 @@ export async function inviteStaff(
 
     if (!emailRes.ok) {
       const body = await emailRes.json().catch(() => ({}));
-      return { error: `Failed to send invite email: ${(body as { message?: string }).message ?? emailRes.status}` };
+      // Return the link anyway so the SA can share it manually
+      return {
+        error: `Email delivery failed (${(body as { message?: string }).message ?? emailRes.status}). Share this link directly:`,
+        inviteLink,
+      };
     }
+
+    revalidatePath("/superadmin/dashboard");
+    return { success: true, inviteLink };
   } else {
     // Fallback: Supabase email (requires SMTP in Supabase dashboard)
     const { error: inviteErr } = await (svc.auth.admin as any).inviteUserByEmail(email, {
@@ -320,6 +330,36 @@ export async function denyAccessRequest(
     reviewed_by: saUser.id,
     reviewed_at: new Date().toISOString(),
   }).eq("id", requestId);
+
+  revalidatePath("/superadmin/dashboard");
+  return { success: true };
+}
+
+// ── Remove a staff account (SA only) — deletes auth user + cascades profile ─
+
+export async function removeStaffAccount(
+  targetId: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await assertSuperAdmin();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const svc = createServiceClient();
+
+  // Verify target is a trainer/quiz_creator (not SA)
+  const { data: profile } = await svc
+    .from("profiles")
+    .select("role")
+    .eq("id", targetId)
+    .in("role", ["trainer", "quiz_creator"])
+    .single();
+
+  if (!profile) return { error: "Staff member not found or cannot be removed." };
+
+  const { error } = await svc.auth.admin.deleteUser(targetId);
+  if (error) return { error: error.message };
 
   revalidatePath("/superadmin/dashboard");
   return { success: true };
