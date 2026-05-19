@@ -321,6 +321,7 @@ export type Database = {
       }
       cohorts: {
         Row: {
+          analytics_threshold: number | null
           attendance_partial_pct: number
           attendance_present_pct: number
           canvas_api_token_encrypted: string | null
@@ -345,6 +346,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          analytics_threshold?: number | null
           attendance_partial_pct?: number
           attendance_present_pct?: number
           canvas_api_token_encrypted?: string | null
@@ -369,6 +371,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          analytics_threshold?: number | null
           attendance_partial_pct?: number
           attendance_present_pct?: number
           canvas_api_token_encrypted?: string | null
