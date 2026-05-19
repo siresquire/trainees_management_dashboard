@@ -10,8 +10,9 @@ export default function InviteStaffForm() {
   const linkRef = useRef<HTMLInputElement>(null);
 
   function copyLink() {
-    if (!state?.inviteLink) return;
-    navigator.clipboard.writeText(state.inviteLink).then(() => {
+    const toCopy = state?.tempPassword ?? state?.inviteLink;
+    if (!toCopy) return;
+    navigator.clipboard.writeText(toCopy).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -36,7 +37,50 @@ export default function InviteStaffForm() {
     );
   }
 
-  // Success state — email sent, show the link as a fallback
+  // Existing user — show temp password to share directly (no expiry)
+  if (state?.success && state.tempPassword) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-slate-900">Account already exists</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-1">
+          A temporary password has been set for <span className="font-medium text-slate-700">{state.email}</span>.
+          Share it securely (e.g. Slack) and ask them to sign in at the dashboard, then change their password in profile settings.
+        </p>
+        <p className="text-xs text-slate-400 mb-3">Login URL: <span className="font-mono">/login</span></p>
+        <div className="flex gap-2">
+          <input
+            ref={linkRef}
+            readOnly
+            value={state.tempPassword}
+            className="flex-1 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-slate-800 bg-slate-50 focus:outline-none"
+            onFocus={(e) => e.target.select()}
+          />
+          <button
+            onClick={copyLink}
+            className="flex-shrink-0 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <p className="text-xs text-amber-600 mt-2">This password replaces their previous one immediately. No expiry.</p>
+        <button
+          onClick={handleClose}
+          className="mt-4 w-full text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg py-2 transition-colors"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  // New user — email sent, show the link as a copy-and-share fallback
   if (state?.success && state.inviteLink) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-5">

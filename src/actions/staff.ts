@@ -2,7 +2,14 @@
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { randomBytes } from "crypto";
 import { z } from "zod";
+
+function makeTempPassword(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  return Array.from(bytes).map((b) => chars[(b as number) % chars.length]).join("");
+}
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -26,7 +33,15 @@ const InviteSchema = z.object({
   role: z.enum(["trainer", "quiz_creator"]),
 });
 
-export type InviteStaffState = { errors?: Record<string, string[]>; error?: string; success?: boolean; inviteLink?: string } | null;
+export type InviteStaffState = {
+  errors?: Record<string, string[]>;
+  error?: string;
+  success?: boolean;
+  inviteLink?: string;
+  /** Set when the person already has an account — SA shares this directly instead of a link */
+  tempPassword?: string;
+  email?: string;
+} | null;
 
 export async function inviteStaff(
   _prev: InviteStaffState,
@@ -51,34 +66,38 @@ export async function inviteStaff(
   const svc = createServiceClient();
   const resendKey = process.env.RESEND_API_KEY;
 
-  if (resendKey) {
-    // Check if a user with this email already exists to avoid creating a duplicate account
-    let inviteLink: string | null = null;
-    let isExistingUser = false;
+  // ── Pre-check: does this email already have an auth account? ──────────────
+  // We scan auth.users before calling generateLink so we never create a
+  // second account for the same email (Supabase can duplicate unconfirmed users).
+  const { data: usersPage } = await svc.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const existingAuthUser = usersPage?.users?.find(
+    (u) => u.email?.toLowerCase() === email.toLowerCase()
+  );
 
-    // Try invite link first — if the email already has an account Supabase returns email_exists
+  if (existingAuthUser) {
+    // Account already exists — set a temp password so SA can share it directly.
+    // No magic link needed: links expire in 1 hour and may not arrive by email.
+    const tempPassword = makeTempPassword();
+    const { error: pwdErr } = await svc.auth.admin.updateUserById(existingAuthUser.id, {
+      password: tempPassword,
+    });
+    if (pwdErr) return { error: `Failed to set temp password: ${pwdErr.message}` };
+
+    revalidatePath("/superadmin/dashboard");
+    return { success: true, tempPassword, email };
+  }
+
+  // ── New user — generate invite link ──────────────────────────────────────
+  if (resendKey) {
     const { data: inviteData, error: inviteErr } = await (svc.auth.admin as any).generateLink({
       type: "invite",
       email,
       options: { redirectTo: `${appUrl}/auth/accept-invite`, data: { full_name, role } },
     });
 
-    if (!inviteErr) {
-      inviteLink = inviteData?.properties?.action_link ?? inviteData?.action_link ?? null;
-    } else if ((inviteErr as any).code === "email_exists" || inviteErr.status === 422) {
-      isExistingUser = true;
-      // User already exists — generate a magic link so they can sign in
-      const { data: mlData, error: mlErr } = await (svc.auth.admin as any).generateLink({
-        type: "magiclink",
-        email,
-        options: { redirectTo: `${appUrl}/auth/accept-invite` },
-      });
-      if (mlErr) return { error: `Failed to generate sign-in link: ${mlErr.message}` };
-      inviteLink = mlData?.properties?.action_link ?? mlData?.action_link ?? null;
-    } else {
-      return { error: `Failed to generate invite link: ${inviteErr.message}` };
-    }
+    if (inviteErr) return { error: `Failed to generate invite link: ${inviteErr.message}` };
 
+    const inviteLink: string | null = inviteData?.properties?.action_link ?? inviteData?.action_link ?? null;
     if (!inviteLink) return { error: "Failed to generate invite link (empty response)" };
 
     const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Amalitech Dashboard <onboarding@resend.dev>";
@@ -93,8 +112,8 @@ export async function inviteStaff(
           <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
             <div style="width:40px;height:40px;background:#f97316;border-radius:10px;margin-bottom:20px"></div>
             <h2 style="color:#0f172a;margin:0 0 8px">You're invited to Amalitech Dashboard</h2>
-            <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been ${isExistingUser ? "re-invited" : "invited"} as a <strong>${role.replace("_", " ")}</strong>. Click the button below to ${isExistingUser ? "sign in to" : "set up"} your account.</p>
-            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">${isExistingUser ? "Sign in to dashboard" : "Accept invitation"}</a>
+            <p style="color:#475569;margin:0 0 24px">Hi ${full_name}, you have been invited as a <strong>${role.replace("_", " ")}</strong>. Click the button below to set up your account.</p>
+            <a href="${inviteLink}" style="display:inline-block;background:#f97316;color:#fff;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">Accept invitation</a>
             <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you weren't expecting this, you can ignore this email.</p>
           </div>
         `,
@@ -103,7 +122,6 @@ export async function inviteStaff(
 
     if (!emailRes.ok) {
       const body = await emailRes.json().catch(() => ({}));
-      // Return the link anyway so the SA can share it manually
       return {
         error: `Email delivery failed (${(body as { message?: string }).message ?? emailRes.status}). Share this link directly:`,
         inviteLink,
