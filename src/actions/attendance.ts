@@ -475,12 +475,50 @@ export async function updateAttendanceThresholds(
   if (partial >= present) return { error: "Partial threshold must be less than Present threshold" };
 
   const service = createServiceClient();
-  const { error } = await service
+
+  // Fetch cohort level so we know whether to apply percentage thresholds
+  const { data: cohort } = await service
+    .from("cohorts")
+    .select("level")
+    .eq("id", cohortId)
+    .single();
+
+  const isPractitioner = cohort?.level === "practitioner";
+
+  // Save new thresholds
+  const { error: updateErr } = await service
     .from("cohorts")
     .update({ attendance_present_pct: present, attendance_partial_pct: partial })
     .eq("id", cohortId);
 
-  if (error) return { error: error.message };
+  if (updateErr) return { error: updateErr.message };
+
+  // Recalculate status for all existing attendance rows in this cohort
+  const { data: sessions } = await service
+    .from("sessions")
+    .select("id")
+    .eq("cohort_id", cohortId);
+
+  const sessionIds = (sessions ?? []).map((s) => s.id);
+
+  if (sessionIds.length) {
+    const { data: rows } = await service
+      .from("attendance")
+      .select("id, session_id, trainee_id, duration_mins, total_session_mins")
+      .in("session_id", sessionIds);
+
+    if (rows?.length) {
+      const updates = rows.map((r) => ({
+        id:                r.id,
+        session_id:        r.session_id,
+        trainee_id:        r.trainee_id,
+        status:            statusFromDuration(r.duration_mins, r.total_session_mins, isPractitioner, present, partial),
+      }));
+      for (let i = 0; i < updates.length; i += 500) {
+        await service.from("attendance").upsert(updates.slice(i, i + 500));
+      }
+    }
+  }
 
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);

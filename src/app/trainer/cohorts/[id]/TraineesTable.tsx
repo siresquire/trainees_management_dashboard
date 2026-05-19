@@ -277,15 +277,15 @@ export default function TraineesTable({
                   const online   = !!t.user_id && onlineSet.has(t.user_id);
                   const lastSeen = t.user_id ? (lastSeenByUserId[t.user_id] ?? null) : null;
                   return (
-                    <tr key={t.id} className="hover:bg-slate-50">
+                    <tr
+                      key={t.id}
+                      className="hover:bg-orange-50 cursor-pointer transition-colors"
+                      onClick={() => setDetailTraineeId(t.id)}
+                      title="Click to view trainee details"
+                    >
                       <td className="px-4 py-3 text-slate-400 text-xs">{t.serial_no ?? "—"}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        <button
-                          onClick={() => setDetailTraineeId(t.id)}
-                          className="hover:text-orange-600 transition-colors text-left"
-                        >
-                          {t.full_name}
-                        </button>
+                      <td className="px-4 py-3 font-medium text-slate-900 hover:text-orange-600 transition-colors">
+                        {t.full_name}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{t.personal_email}</td>
                       {!isPractitioner && (
@@ -316,7 +316,7 @@ export default function TraineesTable({
                         </td>
                       )}
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         {!isGraduatable ? (
                           t.graduated ? (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
@@ -337,7 +337,7 @@ export default function TraineesTable({
                         )}
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <AccountCell
                           traineeId={t.id}
                           cohortId={cohortId}
