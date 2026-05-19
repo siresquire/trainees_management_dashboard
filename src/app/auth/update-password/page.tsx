@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const inputCls =
@@ -12,7 +11,6 @@ export default function UpdatePasswordPage() {
   const [confirm, setConfirm]     = useState("");
   const [error, setError]         = useState<string | null>(null);
   const [saving, setSaving]       = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,22 +35,8 @@ export default function UpdatePasswordPage() {
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.replace("/login"); return; }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    const dest =
-      profile?.role === "super_admin"    ? "/superadmin/dashboard"
-      : profile?.role === "trainer"      ? "/trainer/dashboard"
-      : profile?.role === "quiz_creator" ? "/trainer/dashboard"
-      : "/trainee/dashboard";
-
-    router.replace(dest);
+    // Hard navigation to server route — reads session from cookies reliably
+    window.location.href = "/auth/role-redirect";
   }
 
   return (
