@@ -903,7 +903,7 @@ export default function ExamsClient({
             <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-700">Score Matrix</h3>
               <span className="text-xs text-slate-400">
-                Latest attempt shown · Pct relative to max score · ↑↓ trend vs previous quiz
+                Best attempt shown · Pct relative to max score · ↑↓ trend vs previous quiz
               </span>
             </div>
             <div className="overflow-x-auto">
@@ -943,22 +943,22 @@ export default function ExamsClient({
                     </tr>
                   ) : (
                     trainees.map((t) => {
-                      // Matrix display uses LATEST attempt (so corrections are reflected immediately)
-                      // Analytics tab keeps using BEST score for prediction purposes
+                      // Each quiz is taken once; edits are corrections so best = the one true score.
                       const quizData = quizzes.map((q, qi) => {
-                        const latest = latestScoreMap.get(`${t.id}:${q.id}`);
-                        const pct    = latest !== undefined ? (latest / q.max_score) * 100 : null;
+                        const score = bestScoreMap.get(`${t.id}:${q.id}`);
+                        const pct   = score !== undefined ? (score / q.max_score) * 100 : null;
                         let trend: "up" | "down" | "flat" | null = null;
                         if (pct !== null && qi > 0) {
                           const prevScored = quizzes.slice(0, qi)
-                            .map((pq) => { const pl = latestScoreMap.get(`${t.id}:${pq.id}`); return pl !== undefined ? (pl / pq.max_score) * 100 : null; })
+                            .map((pq) => { const pb = bestScoreMap.get(`${t.id}:${pq.id}`); return pb !== undefined ? (pb / pq.max_score) * 100 : null; })
                             .filter((v): v is number => v !== null);
                           if (prevScored.length > 0) {
                             const p = prevScored[prevScored.length - 1];
                             trend = pct > p + 0.5 ? "up" : pct < p - 0.5 ? "down" : "flat";
                           }
                         }
-                        return { q, latest, pct, trend };
+                        const latest = latestScoreMap.get(`${t.id}:${q.id}`);
+                        return { q, score, latest, pct, trend };
                       });
 
                       const pcts   = quizData.filter((d) => d.pct !== null).map((d) => d.pct as number);
@@ -971,7 +971,7 @@ export default function ExamsClient({
                         <tr key={t.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                           <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                          {quizData.map(({ q, latest, pct, trend }) => {
+                          {quizData.map(({ q, score, latest, pct, trend }) => {
                             const isEditing = editingCell?.quizId === q.id && editingCell?.traineeId === t.id;
                             return (
                               <td
@@ -1013,7 +1013,7 @@ export default function ExamsClient({
                                   >
                                     {pct !== null ? (
                                       <>
-                                        <span className={`text-sm ${scoreTextColor(pct)}`}>{latest}</span>
+                                        <span className={`text-sm ${scoreTextColor(pct)}`}>{score}</span>
                                         {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
                                         {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
                                         {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}

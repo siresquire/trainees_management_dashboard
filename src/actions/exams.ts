@@ -997,9 +997,9 @@ export async function uploadExamScoresFromFile(
 }
 
 // ── Manual single-cell score upsert ──────────────────────────────────────────
-// Used when a trainer edits an individual cell in the Score Matrix.
-// Updates the most recent attempt in-place (correction); inserts only when no
-// attempt exists yet (first entry for that trainee/quiz).
+// Trainees take each quiz exactly once; edits are corrections for late/missed
+// submissions. Delete any existing rows first so there is always exactly one
+// row per (quiz_id, trainee_id) after the edit — best = latest = the one score.
 
 export async function upsertExamScoreManual(
   quizId:    string,
@@ -1011,38 +1011,26 @@ export async function upsertExamScoreManual(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  const { data: existing } = await supabase
+  // Remove any accumulated rows (handles old data too)
+  const { error: delError } = await supabase
     .from("exam_scores")
-    .select("id, attempt_no")
+    .delete()
     .eq("quiz_id", quizId)
-    .eq("trainee_id", traineeId)
-    .order("attempt_no", { ascending: false })
-    .limit(1);
+    .eq("trainee_id", traineeId);
 
-  let dbError;
+  if (delError) return { error: delError.message };
 
-  if (existing?.length) {
-    // Correct the most recent attempt in-place
-    const { error } = await supabase
-      .from("exam_scores")
-      .update({ score, uploaded_at: new Date().toISOString() })
-      .eq("id", existing[0].id);
-    dbError = error;
-  } else {
-    // First score for this trainee/quiz — insert as attempt 1
-    const { error } = await supabase
-      .from("exam_scores")
-      .insert({
-        quiz_id:     quizId,
-        trainee_id:  traineeId,
-        score,
-        attempt_no:  1,
-        uploaded_at: new Date().toISOString(),
-      });
-    dbError = error;
-  }
+  const { error: insError } = await supabase
+    .from("exam_scores")
+    .insert({
+      quiz_id:     quizId,
+      trainee_id:  traineeId,
+      score,
+      attempt_no:  1,
+      uploaded_at: new Date().toISOString(),
+    });
 
-  if (dbError) return { error: dbError.message };
+  if (insError) return { error: insError.message };
   revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
   return { success: true };
 }
