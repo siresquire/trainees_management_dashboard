@@ -4,21 +4,53 @@ import { useTransition } from "react";
 import { syncCohortFromCanvas, initFromTemplate } from "@/actions/canvas";
 import { useState } from "react";
 
-export function InitTemplateButton({ cohortId }: { cohortId: string }) {
+export function InitTemplateButton({ cohortId, cohortLevel }: { cohortId: string; cohortLevel: string }) {
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<string | null>(null);
+
+  function run(subtype?: string) {
+    startTransition(async () => {
+      setResult(null);
+      const r = await initFromTemplate(cohortId, subtype);
+      if ("error" in r) setResult(`Error: ${r.error}`);
+      else setResult(`Done — ${r.inserted} task${r.inserted !== 1 ? "s" : ""} added.`);
+    });
+  }
+
+  if (cohortLevel === "practitioner") {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-slate-500">Select the cohort variant to load the matching task list:</p>
+        <div className="flex gap-2">
+          <button
+            disabled={isPending}
+            onClick={() => run("university")}
+            className="text-sm border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isPending ? "Initializing…" : "University template"}
+          </button>
+          <button
+            disabled={isPending}
+            onClick={() => run("external")}
+            className="text-sm border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isPending ? "Initializing…" : "External template"}
+          </button>
+        </div>
+        {result && (
+          <p className={`text-sm ${result.startsWith("Error") ? "text-red-600" : "text-green-700"}`}>
+            {result}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
       <button
         disabled={isPending}
-        onClick={() =>
-          startTransition(async () => {
-            const r = await initFromTemplate(cohortId);
-            if ("error" in r) setResult(`Error: ${r.error}`);
-            else setResult(`Done — ${r.inserted} task${r.inserted !== 1 ? "s" : ""} added.`);
-          })
-        }
+        onClick={() => run()}
         className="text-sm border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50"
       >
         {isPending ? "Initializing…" : "Initialize from default template"}

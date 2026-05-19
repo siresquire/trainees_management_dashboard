@@ -444,6 +444,7 @@ export type Database = {
       }
       curriculum_templates: {
         Row: {
+          cohort_subtype: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -454,6 +455,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cohort_subtype?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -464,6 +466,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cohort_subtype?: string | null
           created_at?: string
           created_by?: string | null
           id?: string

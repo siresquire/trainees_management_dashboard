@@ -76,7 +76,7 @@ export default async function CanvasSetupPage({
         ) : (
           <p className="text-sm text-amber-600 mb-3">No tasks yet — initialize from the default template.</p>
         )}
-        <InitTemplateButton cohortId={id} />
+        <InitTemplateButton cohortId={id} cohortLevel={cohort?.level ?? ""} />
       </Section>
 
       {/* Sync */}

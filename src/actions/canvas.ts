@@ -95,7 +95,7 @@ export async function saveCanvasToken(
 
 // ── Init cohort tasks from default template ───────────────────────────────
 
-export async function initFromTemplate(cohortId: string): Promise<InitTemplateResult> {
+export async function initFromTemplate(cohortId: string, subtype?: string): Promise<InitTemplateResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
@@ -113,15 +113,23 @@ export async function initFromTemplate(cohortId: string): Promise<InitTemplateRe
     .single();
   if (!cohort) return { error: "Cohort not found." };
 
-  // Find the default template for this level
-  const { data: template } = await supabase
+  // Find the default template for this level (and subtype when provided)
+  let templateQuery = supabase
     .from("curriculum_templates")
     .select("id")
     .eq("level", cohort.level)
-    .eq("is_default", true)
-    .single();
+    .eq("is_default", true);
 
-  if (!template) return { error: `No default template found for ${cohort.level} level.` };
+  if (subtype) {
+    templateQuery = templateQuery.eq("cohort_subtype", subtype);
+  }
+
+  const { data: template } = await templateQuery.single();
+
+  if (!template) {
+    const suffix = subtype ? ` (${subtype})` : "";
+    return { error: `No default template found for ${cohort.level} level${suffix}.` };
+  }
 
   const { data: templateTasks } = await supabase
     .from("template_tasks")
