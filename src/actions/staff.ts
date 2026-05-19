@@ -166,14 +166,25 @@ export async function inviteStaff(
 
 // ── Submit access request (public — no auth) ─────────────────────────────
 
+function isValidGhanaOrRwandaPhone(raw: string): boolean {
+  const s = raw.replace(/[\s\-().]/g, "");
+  // Ghana: +233 or 0, then a digit 2-9, then 8 more digits (total 10 local / 13 with +)
+  if (/^(\+233[2-9]\d{8}|0[2-9]\d{8})$/.test(s)) return true;
+  // Rwanda: +250 or 07/08, then 8 more digits
+  if (/^(\+250[7-9]\d{8}|0[7-9]\d{8})$/.test(s)) return true;
+  return false;
+}
+
 const RequestSchema = z.object({
   full_name:      z.string().min(2, "Name is required"),
   email:          z.string().email("Valid email required"),
   institution:    z.string().min(2, "Institution is required"),
-  town:           z.string().min(1, "Town is required"),
+  town:           z.string().min(1, "Town / City is required"),
   region:         z.string().min(1, "Region is required"),
-  phone:          z.string().min(6, "Phone number is required"),
-  reason:         z.string().min(10, "Please give a brief reason (at least 10 characters)"),
+  phone:          z.string().refine(isValidGhanaOrRwandaPhone, {
+    message: "Enter a valid Ghana (+233) or Rwanda (+250) phone number",
+  }),
+  reason:         z.string().optional(),
   requested_role: z.enum(["trainer", "quiz_creator"]),
 });
 

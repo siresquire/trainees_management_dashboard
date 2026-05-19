@@ -6,16 +6,30 @@ import { submitAccessRequest } from "@/actions/staff";
 import Link from "next/link";
 
 const inputCls =
-  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent";
+  "w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+
+const GHANA_OFFICES = [
+  { town: "Takoradi", region: "Western Region"       },
+  { town: "Accra",    region: "Greater Accra Region" },
+  { town: "Kumasi",   region: "Ashanti Region"       },
+] as const;
+
+function RequiredMark() {
+  return <span className="text-red-500 ml-0.5" aria-hidden>*</span>;
+}
 
 function Field({
   label,
   name,
+  required,
+  optional,
   error,
   children,
 }: {
   label: string;
   name: string;
+  required?: boolean;
+  optional?: boolean;
   error?: string;
   children: React.ReactNode;
 }) {
@@ -23,6 +37,10 @@ function Field({
     <div>
       <label htmlFor={name} className="block text-sm font-medium text-slate-700 mb-1.5">
         {label}
+        {required && <RequiredMark />}
+        {optional && (
+          <span className="ml-1.5 text-xs font-normal text-slate-400">(optional)</span>
+        )}
       </label>
       {children}
       {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
@@ -33,6 +51,17 @@ function Field({
 export default function RequestForm() {
   const [state, action, isPending] = useActionState(submitAccessRequest, null);
   const [selectedRole, setSelectedRole] = useState<"trainer" | "quiz_creator">("quiz_creator");
+  const [selectedInstitution, setSelectedInstitution] = useState("");
+  const [selectedTown, setSelectedTown] = useState("");
+
+  const isTrainer = selectedRole === "trainer";
+  const isRwanda  = selectedInstitution === "AmaliTech - Rwanda";
+
+  // Derived values for trainer — auto-filled when Rwanda, linked when Ghana
+  const townValue   = isRwanda ? "Kigali" : selectedTown;
+  const regionValue = isRwanda
+    ? "Kigali"
+    : GHANA_OFFICES.find((o) => o.town === selectedTown)?.region ?? "";
 
   if (state?.success) {
     return (
@@ -56,13 +85,17 @@ export default function RequestForm() {
 
   return (
     <form action={action} className="space-y-4">
+      {/* Required-fields note */}
+      <p className="text-xs text-slate-400">
+        Fields marked <span className="text-red-500">*</span> are required.
+      </p>
+
       {/* Role selector */}
-      <Field label="I am applying as a…" name="requested_role" error={state?.errors?.requested_role?.[0]}>
+      <Field label="I am applying as a…" name="requested_role" required error={state?.errors?.requested_role?.[0]}>
         <div className="flex gap-3">
           {(["trainer", "quiz_creator"] as const).map((role) => (
             <label
               key={role}
-              onClick={() => setSelectedRole(role)}
               className={`flex-1 flex items-center gap-2.5 border rounded-lg px-3.5 py-2.5 cursor-pointer transition-colors ${
                 selectedRole === role
                   ? "border-purple-500 bg-purple-50"
@@ -74,7 +107,11 @@ export default function RequestForm() {
                 name="requested_role"
                 value={role}
                 checked={selectedRole === role}
-                onChange={() => setSelectedRole(role)}
+                onChange={() => {
+                  setSelectedRole(role);
+                  setSelectedInstitution("");
+                  setSelectedTown("");
+                }}
                 className="accent-purple-600"
               />
               <span className="text-sm text-slate-700">
@@ -85,8 +122,8 @@ export default function RequestForm() {
         </div>
       </Field>
 
-      {/* Name */}
-      <Field label="Full name" name="full_name" error={state?.errors?.full_name?.[0]}>
+      {/* Full name */}
+      <Field label="Full name" name="full_name" required error={state?.errors?.full_name?.[0]}>
         <input
           id="full_name"
           name="full_name"
@@ -98,7 +135,7 @@ export default function RequestForm() {
       </Field>
 
       {/* Email */}
-      <Field label="Email address" name="email" error={state?.errors?.email?.[0]}>
+      <Field label="Email address" name="email" required error={state?.errors?.email?.[0]}>
         <input
           id="email"
           name="email"
@@ -109,60 +146,130 @@ export default function RequestForm() {
         />
       </Field>
 
-      {/* Institution */}
-      <Field label="Institution / Organisation" name="institution" error={state?.errors?.institution?.[0]}>
-        <input
-          id="institution"
-          name="institution"
-          type="text"
-          required
-          placeholder="e.g. Amalitech Ghana"
-          className={inputCls}
-        />
+      {/* Institution — dropdown for Trainer, free text for Quiz Creator */}
+      <Field
+        label="Institution / Organisation"
+        name="institution"
+        required
+        error={state?.errors?.institution?.[0]}
+      >
+        {isTrainer ? (
+          <select
+            id="institution"
+            name="institution"
+            required
+            value={selectedInstitution}
+            onChange={(e) => {
+              setSelectedInstitution(e.target.value);
+              setSelectedTown(""); // reset town when institution changes
+            }}
+            className={inputCls}
+          >
+            <option value="">Select institution…</option>
+            <option value="AmaliTech - Ghana">AmaliTech - Ghana</option>
+            <option value="AmaliTech - Rwanda">AmaliTech - Rwanda</option>
+          </select>
+        ) : (
+          <input
+            id="institution"
+            name="institution"
+            type="text"
+            required
+            placeholder="e.g. University of Ghana"
+            className={inputCls}
+          />
+        )}
       </Field>
 
       {/* Town + Region (side by side) */}
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Town / City" name="town" error={state?.errors?.town?.[0]}>
-          <input
-            id="town"
-            name="town"
-            type="text"
-            required
-            placeholder="e.g. Accra"
-            className={inputCls}
-          />
-        </Field>
-        <Field label="Region" name="region" error={state?.errors?.region?.[0]}>
-          <input
-            id="region"
-            name="region"
-            type="text"
-            required
-            placeholder="e.g. Greater Accra"
-            className={inputCls}
-          />
-        </Field>
-      </div>
+      {isTrainer ? (
+        <>
+          {/* Hidden inputs carry submitted values (avoids disabled-field non-submission) */}
+          <input type="hidden" name="town"   value={townValue} />
+          <input type="hidden" name="region" value={regionValue} />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Town / City" name="town_display" required error={state?.errors?.town?.[0]}>
+              <select
+                id="town_display"
+                disabled={isRwanda}
+                value={townValue}
+                onChange={(e) => setSelectedTown(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Select office…</option>
+                {GHANA_OFFICES.map((o) => (
+                  <option key={o.town} value={o.town}>{o.town}</option>
+                ))}
+                {isRwanda && <option value="Kigali">Kigali</option>}
+              </select>
+            </Field>
+            <Field label="Region" name="region_display" required error={state?.errors?.region?.[0]}>
+              <select
+                id="region_display"
+                disabled={isRwanda}
+                value={regionValue}
+                onChange={(e) => {
+                  const office = GHANA_OFFICES.find((o) => o.region === e.target.value);
+                  if (office) setSelectedTown(office.town);
+                }}
+                className={inputCls}
+              >
+                <option value="">Select region…</option>
+                {GHANA_OFFICES.map((o) => (
+                  <option key={o.region} value={o.region}>{o.region}</option>
+                ))}
+                {isRwanda && <option value="Kigali">Kigali</option>}
+              </select>
+            </Field>
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Town / City" name="town" required error={state?.errors?.town?.[0]}>
+            <input
+              id="town"
+              name="town"
+              type="text"
+              required
+              placeholder="e.g. Accra"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Region" name="region" required error={state?.errors?.region?.[0]}>
+            <input
+              id="region"
+              name="region"
+              type="text"
+              required
+              placeholder="e.g. Greater Accra"
+              className={inputCls}
+            />
+          </Field>
+        </div>
+      )}
 
       {/* Phone */}
-      <Field label="Phone number" name="phone" error={state?.errors?.phone?.[0]}>
+      <Field label="Phone number" name="phone" required error={state?.errors?.phone?.[0]}>
         <input
           id="phone"
           name="phone"
           type="tel"
           required
-          placeholder="+233 XX XXX XXXX"
+          placeholder="+233 or +250 number"
           className={inputCls}
         />
       </Field>
 
-      {/* Reason */}
-      <Field label="Why do you need access?" name="reason" error={state?.errors?.reason?.[0]}>
+      {/* Reason (optional) */}
+      <Field
+        label="Why do you need access?"
+        name="reason"
+        optional
+        error={state?.errors?.reason?.[0]}
+      >
         <textarea
           id="reason"
           name="reason"
-          required
           rows={3}
           placeholder="Briefly explain your role and how you plan to use the platform…"
           className={`${inputCls} resize-none`}
