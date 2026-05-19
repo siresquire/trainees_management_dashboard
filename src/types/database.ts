@@ -34,6 +34,52 @@ export type Database = {
   }
   public: {
     Tables: {
+      attendance_overrides: {
+        Row: {
+          id: string
+          session_id: string
+          trainee_id: string
+          overridden_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          trainee_id: string
+          overridden_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          trainee_id?: string
+          overridden_by?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_overrides_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_overrides_trainee_id_fkey"
+            columns: ["trainee_id"]
+            isOneToOne: false
+            referencedRelation: "trainees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_overrides_overridden_by_fkey"
+            columns: ["overridden_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance: {
         Row: {
           attendance_pct: number | null

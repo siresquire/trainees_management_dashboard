@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 type AttResult = { error?: string };
@@ -438,6 +438,53 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
   revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return {};
+}
+
+// ── Update Attendance Thresholds ──────────────────────────────────────────────
+
+export async function updateAttendanceThresholds(
+  cohortId: string,
+  presentPct: number,
+  partialPct: number,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  const isSuperAdmin = profile?.role === "super_admin";
+
+  if (!isSuperAdmin) {
+    const { data: access } = await supabase
+      .from("cohort_access")
+      .select("id")
+      .eq("cohort_id", cohortId)
+      .eq("trainer_id", user.id)
+      .single();
+    if (!access) return { error: "Access denied" };
+  }
+
+  const present = Math.min(100, Math.max(1, Math.round(presentPct)));
+  const partial = Math.min(100, Math.max(1, Math.round(partialPct)));
+
+  if (partial >= present) return { error: "Partial threshold must be less than Present threshold" };
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("cohorts")
+    .update({ attendance_present_pct: present, attendance_partial_pct: partial })
+    .eq("id", cohortId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+  revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
+  return { success: true };
 }
 
 // ── Delete Session ────────────────────────────────────────────────────────────

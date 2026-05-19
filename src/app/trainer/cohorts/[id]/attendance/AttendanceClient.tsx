@@ -9,6 +9,7 @@ import {
   saveManualAttendance,
   uploadTeamsAttendanceCsv,
   deleteSession,
+  updateAttendanceThresholds,
 } from "@/actions/attendance";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -128,6 +129,12 @@ export default function AttendanceClient({
 
   // Delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Threshold editing
+  const [editThresholds,  setEditThresholds]  = useState(false);
+  const [editPresentPct,  setEditPresentPct]  = useState(presentPct);
+  const [editPartialPct,  setEditPartialPct]  = useState(partialPct);
+  const [thresholdError,  setThresholdError]  = useState("");
 
   // Refs for file inputs (so we can reset them)
   const zoomFileRef   = useRef<HTMLInputElement>(null);
@@ -282,6 +289,80 @@ export default function AttendanceClient({
             Teams Session
           </button>
         </div>
+      </div>
+
+      {/* ── Attendance thresholds ───────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-slate-600">
+              Present threshold: <span className="font-semibold text-slate-800">{presentPct}%</span>
+            </span>
+            <span className="text-xs text-slate-600">
+              Partial threshold: <span className="font-semibold text-slate-800">{partialPct}%</span>
+            </span>
+          </div>
+          {!editThresholds && (
+            <button
+              onClick={() => { setEditPresentPct(presentPct); setEditPartialPct(partialPct); setThresholdError(""); setEditThresholds(true); }}
+              className="text-slate-400 hover:text-slate-700 transition-colors"
+              title="Edit thresholds"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {editThresholds && (
+          <div className="mt-3 flex items-end gap-3 flex-wrap">
+            <label className="block">
+              <span className="text-[10px] font-medium text-slate-500 block mb-1">Present %</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={editPresentPct}
+                onChange={(e) => setEditPresentPct(parseInt(e.target.value, 10) || 0)}
+                className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-medium text-slate-500 block mb-1">Partial %</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={editPartialPct}
+                onChange={(e) => setEditPartialPct(parseInt(e.target.value, 10) || 0)}
+                className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
+              />
+            </label>
+            <button
+              onClick={() => {
+                setThresholdError("");
+                startTransition(async () => {
+                  const res = await updateAttendanceThresholds(cohortId, editPresentPct, editPartialPct);
+                  if (res.error) { setThresholdError(res.error); return; }
+                  setEditThresholds(false);
+                  refresh();
+                });
+              }}
+              disabled={isPending}
+              className="text-sm font-medium px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50 transition-colors"
+            >
+              {isPending ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => { setEditThresholds(false); setThresholdError(""); }}
+              className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+            >
+              Cancel
+            </button>
+            {thresholdError && <p className="text-xs text-red-600 w-full">{thresholdError}</p>}
+          </div>
+        )}
       </div>
 
       {/* ── Zoom upload form ────────────────────────────────────────────────── */}
