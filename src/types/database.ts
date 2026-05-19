@@ -2214,6 +2214,15 @@ export type Database = {
           total_sessions:    number
         }[]
       }
+      get_cohort_completion_by_week: {
+        Args: { p_cohort_id: string }
+        Returns: {
+          trainee_id:  string
+          week_number: number
+          lab_count:   number
+          kc_count:    number
+        }[]
+      }
       get_cohort_completion_summary: {
         Args: { p_cohort_id: string }
         Returns: {

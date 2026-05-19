@@ -190,7 +190,7 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("canvas_course_id, canvas_api_token_encrypted")
+    .select("canvas_course_id, canvas_api_token_encrypted, level")
     .eq("id", cohortId)
     .single();
 
@@ -221,31 +221,67 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
   if (!tasks?.length) return { error: "No week tasks set up. Initialize from template first." };
   const taskMap = new Map(tasks.map((t) => [t.task_name.trim(), t]));
 
-  // 3. Load trainees (email → trainee_id, both personal and amalitech)
-  const { data: trainees } = await supabase
+  // 3. Fetch enrollments (needed for email resolution and possibly auto-populate)
+  const enrollments = await canvasFetchAll<{
+    user_id: number;
+    user?: { login_id?: string; name?: string };
+  }>(token, `/courses/${courseId}/enrollments?type[]=StudentEnrollment&per_page=100`);
+
+  const userEmailMap = new Map<number, string>();
+  for (const e of enrollments) {
+    if (e.user?.login_id) userEmailMap.set(e.user_id, e.user.login_id.toLowerCase());
+  }
+
+  // 4. Load trainees — if none exist, auto-populate from Canvas enrollment
+  const { data: existingTrainees } = await supabase
     .from("trainees")
     .select("id, personal_email, amalitech_email")
     .eq("cohort_id", cohortId)
     .eq("status", "active");
-  if (!trainees?.length) return { error: "No active trainees in this cohort." };
 
+  const svc = createServiceClient();
+  const warnings: string[] = [];
   const traineeByEmail = new Map<string, string>();
-  for (const t of trainees) {
-    if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
-    if (t.amalitech_email) traineeByEmail.set(t.amalitech_email.toLowerCase(), t.id);
-  }
 
-  // 4. Fetch enrollments to resolve Canvas user_id → email
-  const enrollments = await canvasFetchAll<{ user_id: number; user?: { login_id?: string } }>(
-    token,
-    `/courses/${courseId}/enrollments?type[]=StudentEnrollment&per_page=100`
-  );
-  const userEmailMap = new Map<number, string>();
-  for (const e of enrollments) {
-    if (e.user?.login_id) {
-      userEmailMap.set(e.user_id, e.user.login_id.toLowerCase());
+  if (!existingTrainees?.length) {
+    // Auto-populate: sort by name for consistent serial numbers
+    const valid = enrollments
+      .filter((e) => e.user?.login_id && e.user?.name)
+      .sort((a, b) => (a.user!.name!).localeCompare(b.user!.name!));
+
+    if (!valid.length) {
+      return { error: "No trainees in this cohort and Canvas enrollment has no student data." };
+    }
+
+    const toInsert = valid.map((e, i) => ({
+      cohort_id:    cohortId,
+      full_name:    e.user!.name!,
+      personal_email: e.user!.login_id!.toLowerCase(),
+      status:       "active",
+      cohort_type:  cohort.level ?? "practitioner",
+      serial_no:    i + 1,
+    }));
+
+    const { data: inserted, error: insErr } = await svc
+      .from("trainees")
+      .upsert(toInsert, { onConflict: "cohort_id,personal_email", ignoreDuplicates: true })
+      .select("id, personal_email");
+
+    if (insErr) return { error: `Failed to auto-populate trainees: ${insErr.message}` };
+
+    for (const t of inserted ?? []) {
+      if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
+    }
+
+    warnings.push(`Auto-populated ${inserted?.length ?? 0} trainees from Canvas enrollment`);
+  } else {
+    for (const t of existingTrainees) {
+      if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
+      if (t.amalitech_email) traineeByEmail.set(t.amalitech_email.toLowerCase(), t.id);
     }
   }
+
+  if (!traineeByEmail.size) return { error: "No trainees could be resolved." };
 
   // 5. Fetch all student submissions
   const submissions = await canvasFetchAll<{
@@ -266,7 +302,6 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
     completed_at: string | null;
     source: string;
   }[] = [];
-  const warnings: string[] = [];
   let skipped = 0;
 
   for (const sub of submissions) {
@@ -302,8 +337,6 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
       source: "canvas",
     });
   }
-
-  const svc = createServiceClient();
 
   if (upserts.length) {
     const { error: upsertError } = await svc
