@@ -1522,9 +1522,13 @@ export default function ExamsClient({
                       const best = bestScoreMap.get(`${t.id}:${q.id}`);
                       if (best !== undefined) pcts.push((best / q.max_score) * 100);
                     }
-                    const avg  = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+                    const overall = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+                    const recent  = pcts.slice(-3);
+                    const recentA = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;
+                    const blended = overall !== null && recentA !== null && pcts.length >= 2
+                      ? 0.35 * overall + 0.65 * recentA : overall;
                     const feat = featuresMap.get(t.id);
-                    return regressionPrediction(modelBundle, avg, feat?.labRatePct ?? null, feat?.kcRatePct ?? null, thresholdPct).label === label;
+                    return regressionPrediction(modelBundle, blended, feat?.labRatePct ?? null, feat?.kcRatePct ?? null, thresholdPct).label === label;
                   }).length;
                   return (
                     <div key={label}>
@@ -1553,7 +1557,10 @@ export default function ExamsClient({
                 const best = bestScoreMap.get(`${t.id}:${q.id}`);
                 if (best !== undefined) pcts.push((best / q.max_score) * 100);
               }
-              return pcts.reduce((a, b) => a + b, 0) / pcts.length;
+              const overall = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+              const recent  = pcts.slice(-3);
+              const recentA = recent.reduce((a, b) => a + b, 0) / recent.length;
+              return pcts.length >= 2 ? 0.35 * overall + 0.65 * recentA : overall;
             });
 
             const cohortAvg  = avgs.reduce((a, b) => a + b, 0) / avgs.length;
@@ -1631,6 +1638,7 @@ export default function ExamsClient({
                 <tbody className="divide-y divide-slate-100">
                   {trainees
                     .map((t) => {
+                      // pcts is in chronological order — quizzes are sorted by created_at ascending
                       const pcts: number[] = [];
                       for (const q of quizzes) {
                         const best = bestScoreMap.get(`${t.id}:${q.id}`);
@@ -1638,39 +1646,74 @@ export default function ExamsClient({
                       }
                       const quizzesAttempted = pcts.length;
                       const quizCoverage     = quizzes.length > 0 ? quizzesAttempted / quizzes.length : 0;
-                      const quizAvg = pcts.length
+
+                      const overallAvg: number | null = pcts.length
                         ? pcts.reduce((a, b) => a + b, 0) / pcts.length
                         : null;
+
+                      // Recent avg: last 3 attempted quizzes in chronological order
+                      const recentSlice = pcts.slice(-3);
+                      const recentAvg: number | null = recentSlice.length
+                        ? recentSlice.reduce((a, b) => a + b, 0) / recentSlice.length
+                        : null;
+
+                      // Trend: need ≥2 quizzes; ±5pp band = "flat"
+                      const trend: "up" | "down" | "flat" | null =
+                        overallAvg !== null && recentAvg !== null && pcts.length >= 2
+                          ? recentAvg > overallAvg + 5 ? "up"
+                            : recentAvg < overallAvg - 5 ? "down"
+                            : "flat"
+                          : null;
+
+                      // Prediction input: weight recent performance more heavily (65 / 35)
+                      // so improving trainees aren't penalised by early low scores.
+                      // Fall back to overall avg when only 1 quiz taken.
+                      const blendedAvg: number | null =
+                        overallAvg !== null && recentAvg !== null && pcts.length >= 2
+                          ? 0.35 * overallAvg + 0.65 * recentAvg
+                          : overallAvg;
+
                       const feat    = featuresMap.get(t.id);
                       const pred    = regressionPrediction(
                         modelBundle,
-                        quizAvg,
+                        blendedAvg,
                         feat?.labRatePct ?? null,
                         feat?.kcRatePct  ?? null,
                         thresholdPct,
                       );
                       const tOutcomes     = outcomeMap.get(t.id) ?? [];
                       const latestOutcome = tOutcomes.length ? tOutcomes[tOutcomes.length - 1] : null;
-                      // Low coverage: scored on fewer than half the available quizzes
-                      const lowCoverage = quizzes.length > 1 && quizCoverage < 0.5;
-                      return { t, quizAvg, quizzesAttempted, lowCoverage, pred, latestOutcome, feat };
+                      const lowCoverage   = quizzes.length > 1 && quizCoverage < 0.5;
+                      return { t, overallAvg, recentAvg, trend, blendedAvg, quizzesAttempted, lowCoverage, pred, latestOutcome, feat };
                     })
                     .sort((a, b) => {
-                      if (a.quizAvg === null && b.quizAvg === null) return 0;
-                      if (a.quizAvg === null) return 1;
-                      if (b.quizAvg === null) return -1;
-                      return b.quizAvg - a.quizAvg;
+                      if (a.blendedAvg === null && b.blendedAvg === null) return 0;
+                      if (a.blendedAvg === null) return 1;
+                      if (b.blendedAvg === null) return -1;
+                      return b.blendedAvg - a.blendedAvg;
                     })
-                    .map(({ t, quizAvg, quizzesAttempted, lowCoverage, pred, latestOutcome, feat }) => (
+                    .map(({ t, overallAvg, recentAvg, trend, quizzesAttempted, lowCoverage, pred, latestOutcome, feat }) => (
                       <tr key={t.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                         <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
                         <td className="px-3 py-3 text-center tabular-nums">
-                          {quizAvg !== null ? (
+                          {overallAvg !== null ? (
                             <div>
-                              <span className={`text-sm font-semibold ${scoreTextColor(quizAvg)}`}>
-                                {quizAvg.toFixed(1)}%
-                              </span>
+                              <div className="flex items-center justify-center gap-1">
+                                <span className={`text-sm font-semibold ${scoreTextColor(overallAvg)}`}>
+                                  {overallAvg.toFixed(1)}%
+                                </span>
+                                {trend === "up"   && <span className="text-green-500 text-xs leading-none">↑</span>}
+                                {trend === "down" && <span className="text-red-500 text-xs leading-none">↓</span>}
+                                {trend === "flat" && <span className="text-slate-400 text-xs leading-none">→</span>}
+                              </div>
+                              {recentAvg !== null && quizzesAttempted >= 2 && (
+                                <p className={`text-[10px] mt-0.5 ${
+                                  trend === "up" ? "text-green-600" : trend === "down" ? "text-red-500" : "text-slate-400"
+                                }`}>
+                                  Recent: {recentAvg.toFixed(1)}%
+                                </p>
+                              )}
                               <p className="text-[10px] text-slate-400 mt-0.5">
                                 {quizzesAttempted}/{quizzes.length} quizzes
                                 {lowCoverage && <span className="text-amber-500 ml-1">⚠</span>}
@@ -1733,7 +1776,17 @@ export default function ExamsClient({
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px]">
                           {pred.detail}
-                          {lowCoverage && quizAvg !== null && (
+                          {trend === "up" && (
+                            <span className="block text-green-600 mt-0.5">
+                              ↑ Improving — recent avg ({recentAvg?.toFixed(1)}%) weighted more heavily in prediction.
+                            </span>
+                          )}
+                          {trend === "down" && (
+                            <span className="block text-red-500 mt-0.5">
+                              ↓ Declining — recent avg ({recentAvg?.toFixed(1)}%) weighted more heavily in prediction.
+                            </span>
+                          )}
+                          {lowCoverage && overallAvg !== null && (
                             <span className="block text-amber-600 mt-0.5">
                               ⚠ Only {quizzesAttempted} of {quizzes.length} quizzes taken — prediction may not reflect full readiness.
                             </span>
