@@ -995,3 +995,42 @@ export async function uploadExamScoresFromFile(
 
   return uploadExamScores(quizId, cohortId, rows);
 }
+
+// ── Manual single-cell score upsert ──────────────────────────────────────────
+// Used when a trainer edits an individual cell in the Score Matrix.
+// Inserts a new attempt so history is preserved; the matrix always shows best.
+
+export async function upsertExamScoreManual(
+  quizId:    string,
+  traineeId: string,
+  cohortId:  string,
+  score:     number,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: existing } = await supabase
+    .from("exam_scores")
+    .select("attempt_no")
+    .eq("quiz_id", quizId)
+    .eq("trainee_id", traineeId)
+    .order("attempt_no", { ascending: false })
+    .limit(1);
+
+  const nextAttempt = existing?.length ? (existing[0].attempt_no ?? 0) + 1 : 1;
+
+  const { error } = await supabase
+    .from("exam_scores")
+    .insert({
+      quiz_id:     quizId,
+      trainee_id:  traineeId,
+      score,
+      attempt_no:  nextAttempt,
+      uploaded_at: new Date().toISOString(),
+    });
+
+  if (error) return { error: error.message };
+  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return { success: true };
+}

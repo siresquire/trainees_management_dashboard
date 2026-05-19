@@ -15,7 +15,7 @@ export default async function ExamsPage({
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("level, exam_type")
+    .select("level, exam_type, analytics_threshold")
     .eq("id", id)
     .single();
 
@@ -291,6 +291,7 @@ export default async function ExamsPage({
       cohortId={id}
       cohortLevel={cohortLevel}
       cohortExamType={cohort?.exam_type ?? null}
+      savedThreshold={cohort?.analytics_threshold ?? null}
       trainees={(trainees ?? []).map((t) => ({
         ...t,
         show_readiness: t.show_readiness ?? false,

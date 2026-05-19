@@ -387,3 +387,24 @@ export async function updateCohortCodeName(
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return { success: true };
 }
+
+// ── Save analytics pass threshold ─────────────────────────────────────────────
+
+export async function saveCohortThreshold(
+  cohortId: string,
+  threshold: number,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const clamped = Math.max(0, Math.min(100, Math.round(threshold)));
+  const { error } = await supabase
+    .from("cohorts")
+    .update({ analytics_threshold: clamped })
+    .eq("id", cohortId);
+
+  if (error) return { error: error.message };
+  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return { success: true };
+}

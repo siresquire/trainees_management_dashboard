@@ -17,7 +17,9 @@ import {
   deleteOfficialScore,
   toggleReadiness,
   updateOfficialScore,
+  upsertExamScoreManual,
 } from "@/actions/exams";
+import { saveCohortThreshold } from "@/actions/cohorts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -219,6 +221,7 @@ export default function ExamsClient({
   cohortId,
   cohortLevel,
   cohortExamType,
+  savedThreshold,
   trainees,
   quizzes,
   scores,
@@ -231,6 +234,7 @@ export default function ExamsClient({
   cohortId:        string;
   cohortLevel:     string;
   cohortExamType:  string | null;
+  savedThreshold:  number | null;
   trainees:        Trainee[];
   quizzes:         Quiz[];
   scores:          Score[];
@@ -245,9 +249,20 @@ export default function ExamsClient({
 
   const [activeTab, setActiveTab] = useState<"quizzes" | "official" | "analytics">("quizzes");
 
-  // Resolved exam type for this cohort (for analytics threshold)
+  // Resolved exam type and threshold
   const resolvedExamType = cohortExamType ?? LEVEL_TO_EXAM[cohortLevel] ?? "CCP";
-  const thresholdPct = ((PASS_THRESHOLD[resolvedExamType] ?? 800) / 1000) * 100;
+  const defaultThreshold = savedThreshold ?? ((PASS_THRESHOLD[resolvedExamType] ?? 800) / 1000) * 100;
+  const [thresholdPct, setThresholdPct] = useState(defaultThreshold);
+  const [savingThreshold, setSavingThreshold] = useState(false);
+  const [thresholdSaved, setThresholdSaved] = useState(false);
+
+  // Analytics drill-down: selected trainee ID
+  const [drillTraineeId, setDrillTraineeId] = useState<string | null>(null);
+  const drillTrainee = drillTraineeId ? trainees.find((t) => t.id === drillTraineeId) ?? null : null;
+
+  // Score Matrix: inline cell editing
+  const [editingCell, setEditingCell] = useState<{ quizId: string; traineeId: string } | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   // ── Pre-computed maps ────────────────────────────────────────────────────────
 
@@ -389,6 +404,44 @@ export default function ExamsClient({
         (res.skipped ? ` · ${res.skipped} not matched` : "");
       setUrlImportResult(msg + (res.warnings.length ? `\nWarnings:\n${res.warnings.join("\n")}` : ""));
       toast(msg);
+      router.refresh();
+    });
+  }
+
+  function handleSaveThreshold() {
+    setSavingThreshold(true);
+    setThresholdSaved(false);
+    startTransition(async () => {
+      const res = await saveCohortThreshold(cohortId, thresholdPct);
+      setSavingThreshold(false);
+      if (res.error) { toast(res.error, "error"); return; }
+      setThresholdSaved(true);
+      setTimeout(() => setThresholdSaved(false), 2500);
+    });
+  }
+
+  function startCellEdit(quizId: string, traineeId: string, currentScore: number | undefined) {
+    setEditingCell({ quizId, traineeId });
+    setEditValue(currentScore !== undefined ? String(currentScore) : "");
+  }
+
+  function cancelCellEdit() {
+    setEditingCell(null);
+    setEditValue("");
+  }
+
+  function submitCellEdit(quizId: string, traineeId: string, maxScore: number) {
+    const raw = parseFloat(editValue);
+    if (isNaN(raw) || raw < 0 || raw > maxScore) {
+      toast(`Score must be between 0 and ${maxScore}`, "error");
+      return;
+    }
+    startTransition(async () => {
+      const res = await upsertExamScoreManual(quizId, traineeId, cohortId, raw);
+      if (res.error) { toast(res.error, "error"); return; }
+      toast("Score saved");
+      setEditingCell(null);
+      setEditValue("");
       router.refresh();
     });
   }
@@ -908,20 +961,61 @@ export default function ExamsClient({
                         <tr key={t.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                           <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
-                          {quizData.map(({ q, best, pct, trend }) => (
-                            <td key={q.id} className="px-3 py-3 text-center tabular-nums">
-                              {pct !== null ? (
-                                <span className="inline-flex items-center justify-center gap-0.5">
-                                  <span className={`text-sm ${scoreTextColor(pct)}`}>{best}</span>
-                                  {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
-                                  {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
-                                  {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-300">—</span>
-                              )}
-                            </td>
-                          ))}
+                          {quizData.map(({ q, best, pct, trend }) => {
+                            const isEditing = editingCell?.quizId === q.id && editingCell?.traineeId === t.id;
+                            return (
+                              <td
+                                key={q.id}
+                                className="px-2 py-2 text-center tabular-nums group relative"
+                                title={`Click to edit score for ${t.full_name} — ${q.quiz_name}`}
+                              >
+                                {isEditing ? (
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <input
+                                      autoFocus
+                                      type="number"
+                                      min={0}
+                                      max={q.max_score}
+                                      step="any"
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") submitCellEdit(q.id, t.id, q.max_score);
+                                        if (e.key === "Escape") cancelCellEdit();
+                                      }}
+                                      className="w-14 border border-orange-400 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400"
+                                    />
+                                    <button
+                                      onClick={() => submitCellEdit(q.id, t.id, q.max_score)}
+                                      className="text-green-600 hover:text-green-700 text-xs font-bold"
+                                      title="Save"
+                                    >✓</button>
+                                    <button
+                                      onClick={cancelCellEdit}
+                                      className="text-slate-400 hover:text-slate-600 text-xs"
+                                      title="Cancel"
+                                    >✕</button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => startCellEdit(q.id, t.id, best)}
+                                    className="w-full flex items-center justify-center gap-0.5 hover:bg-orange-50 rounded px-1 py-0.5 transition-colors"
+                                  >
+                                    {pct !== null ? (
+                                      <>
+                                        <span className={`text-sm ${scoreTextColor(pct)}`}>{best}</span>
+                                        {trend === "up"   && <span className="text-[11px] text-green-500 font-bold leading-none">↑</span>}
+                                        {trend === "down" && <span className="text-[11px] text-red-500 font-bold leading-none">↓</span>}
+                                        {trend === "flat" && <span className="text-[11px] text-slate-400 leading-none">→</span>}
+                                      </>
+                                    ) : (
+                                      <span className="text-xs text-slate-300 group-hover:text-orange-300">+</span>
+                                    )}
+                                  </button>
+                                )}
+                              </td>
+                            );
+                          })}
                           <td className="px-3 py-3 text-center tabular-nums">
                             {avg !== null ? <span className={`text-sm font-medium ${elig.color}`}>{avg}%</span> : <span className="text-xs text-slate-300">—</span>}
                           </td>
@@ -1541,6 +1635,44 @@ export default function ExamsClient({
             </div>
           </div>
 
+          {/* Pass threshold slider */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex-1 min-w-[220px]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-slate-600">Pass threshold</label>
+                  <span className={`text-sm font-bold tabular-nums ${scoreTextColor(thresholdPct)}`}>
+                    {Math.round(thresholdPct)}%
+                  </span>
+                </div>
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={Math.round(thresholdPct)}
+                  onChange={(e) => { setThresholdPct(Number(e.target.value)); setThresholdSaved(false); }}
+                  className="w-full accent-orange-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                  <span>0%</span><span>AWS min</span><span>Internal bar</span><span>100%</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleSaveThreshold}
+                  disabled={savingThreshold}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {savingThreshold ? "Saving…" : thresholdSaved ? "✓ Saved" : "Save as default"}
+                </button>
+                <button
+                  onClick={() => { setThresholdPct(defaultThreshold); setThresholdSaved(false); }}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Insight cards — cohort summary shown first for quick overview */}
           {trainees.length > 0 && quizzes.length > 0 && (() => {
             const withData = trainees.filter((t) => {
@@ -1693,7 +1825,12 @@ export default function ExamsClient({
                       return b.blendedAvg - a.blendedAvg;
                     })
                     .map(({ t, overallAvg, recentAvg, trend, quizzesAttempted, lowCoverage, pred, latestOutcome, feat }) => (
-                      <tr key={t.id} className="hover:bg-slate-50">
+                      <tr
+                        key={t.id}
+                        className="hover:bg-orange-50 cursor-pointer transition-colors"
+                        onClick={() => setDrillTraineeId(t.id)}
+                        title="Click to view full quiz breakdown"
+                      >
                         <td className="px-4 py-3 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
                         <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.full_name}</td>
                         <td className="px-3 py-3 text-center tabular-nums">
@@ -1805,6 +1942,154 @@ export default function ExamsClient({
               <p className="text-xs text-slate-400 mt-1">Add quizzes and upload scores to see predictions.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Trainee drill-down slide panel ───────────────────────────────────── */}
+      {drillTrainee && (
+        <div
+          className="fixed inset-0 z-40 flex justify-end"
+          aria-modal="true"
+          role="dialog"
+        >
+          {/* backdrop */}
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            onClick={() => setDrillTraineeId(null)}
+          />
+          {/* panel */}
+          <div className="relative z-10 w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+            {/* header */}
+            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">{drillTrainee.full_name}</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Quiz score breakdown — all attempts</p>
+              </div>
+              <button
+                onClick={() => setDrillTraineeId(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors ml-4 mt-0.5"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {/* body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {quizzes.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-10">No quizzes available yet.</p>
+              ) : (
+                quizzes.map((q) => {
+                  const attempts = scores
+                    .filter((s) => s.quiz_id === q.id && s.trainee_id === drillTrainee.id)
+                    .sort((a, b) => a.attempt_no - b.attempt_no);
+                  const best = attempts.reduce<number | undefined>(
+                    (m, s) => (m === undefined || s.score > m ? s.score : m),
+                    undefined
+                  );
+                  const bestPct = best !== undefined ? (best / q.max_score) * 100 : null;
+
+                  return (
+                    <div key={q.id} className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{q.quiz_name}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {q.focus_label ?? q.focus_type}
+                            {q.week_number ? ` · Week ${q.week_number}` : ""}
+                            {q.quiz_date ? ` · ${new Date(q.quiz_date).toLocaleDateString()}` : ""}
+                          </p>
+                        </div>
+                        {bestPct !== null && (
+                          <span className={`text-sm font-bold tabular-nums whitespace-nowrap ${scoreTextColor(bestPct)}`}>
+                            {best}/{q.max_score}
+                            <span className="text-xs font-normal text-slate-400 ml-1">({bestPct.toFixed(0)}%)</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {attempts.length === 0 ? (
+                        <p className="text-xs text-slate-400 mt-3 italic">Not attempted</p>
+                      ) : (
+                        <div className="mt-3 space-y-1.5">
+                          {attempts.map((a) => {
+                            const pct = (a.score / q.max_score) * 100;
+                            return (
+                              <div key={a.id} className="flex items-center gap-2">
+                                <span className="text-[10px] text-slate-400 w-16 shrink-0">
+                                  Attempt {a.attempt_no}
+                                </span>
+                                <div className="flex-1 bg-slate-200 rounded-full h-1.5">
+                                  <div
+                                    className={`h-1.5 rounded-full ${
+                                      pct >= thresholdPct ? "bg-green-500"
+                                      : pct >= thresholdPct * 0.85 ? "bg-amber-400"
+                                      : "bg-red-400"
+                                    }`}
+                                    style={{ width: `${Math.min(100, pct)}%` }}
+                                  />
+                                </div>
+                                <span className={`text-xs tabular-nums font-medium w-14 text-right shrink-0 ${scoreTextColor(pct)}`}>
+                                  {a.score}/{q.max_score}
+                                </span>
+                                <span className="text-[10px] text-slate-400 w-10 text-right shrink-0">
+                                  {pct.toFixed(0)}%
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* mini trend note if ≥2 attempts */}
+                      {attempts.length >= 2 && (() => {
+                        const last  = attempts[attempts.length - 1].score;
+                        const first = attempts[0].score;
+                        const diff  = last - first;
+                        if (diff > 0)  return <p className="text-[11px] text-green-600 mt-2">↑ Improved by {diff} points across attempts</p>;
+                        if (diff < 0)  return <p className="text-[11px] text-red-500  mt-2">↓ Declined by {Math.abs(diff)} points across attempts</p>;
+                        return null;
+                      })()}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* footer summary */}
+            {quizzes.length > 0 && (() => {
+              const pcts: number[] = [];
+              for (const q of quizzes) {
+                const best = scores
+                  .filter((s) => s.quiz_id === q.id && s.trainee_id === drillTrainee.id)
+                  .reduce<number | undefined>((m, s) => (m === undefined || s.score > m ? s.score : m), undefined);
+                if (best !== undefined) pcts.push((best / q.max_score) * 100);
+              }
+              if (!pcts.length) return null;
+              const overall = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+              const recent3 = pcts.slice(-3);
+              const recentA = recent3.reduce((a, b) => a + b, 0) / recent3.length;
+              const blended = pcts.length >= 2 ? 0.35 * overall + 0.65 * recentA : overall;
+              return (
+                <div className="px-5 py-4 border-t border-slate-200 bg-slate-50 grid grid-cols-3 gap-3">
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Overall Avg</p>
+                    <p className={`text-sm font-bold tabular-nums mt-0.5 ${scoreTextColor(overall)}`}>{overall.toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Recent Avg</p>
+                    <p className={`text-sm font-bold tabular-nums mt-0.5 ${scoreTextColor(recentA)}`}>{recentA.toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Blended Score</p>
+                    <p className={`text-sm font-bold tabular-nums mt-0.5 ${scoreTextColor(blended)}`}>{blended.toFixed(1)}%</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
     </div>
