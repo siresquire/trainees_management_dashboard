@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 export type TokenTestResult = { courseName: string; students: number } | { error: string };
 export type SaveTokenResult = { success: boolean } | { error: string };
 export type InitTemplateResult = { inserted: number } | { error: string };
-export type SyncResult = { completions: number; skipped: number; warnings: string[] } | { error: string };
+export type SyncResult = { completions: number; skipped: number; newTrainees: number; warnings: string[] } | { error: string };
 
 // ── Helper: verify trainer owns the cohort ────────────────────────────────
 
@@ -235,13 +235,14 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
   // 4. Load trainees — if none exist, auto-populate from Canvas enrollment
   const { data: existingTrainees } = await supabase
     .from("trainees")
-    .select("id, personal_email, amalitech_email")
+    .select("id, personal_email, amalitech_email, serial_no")
     .eq("cohort_id", cohortId)
     .eq("status", "active");
 
   const svc = createServiceClient();
   const warnings: string[] = [];
   const traineeByEmail = new Map<string, string>();
+  let newTrainees = 0;
 
   if (!existingTrainees?.length) {
     // Auto-populate: sort by name for consistent serial numbers
@@ -272,11 +273,46 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
       if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
     }
 
-    warnings.push(`Auto-populated ${inserted?.length ?? 0} trainees from Canvas enrollment`);
+    newTrainees = inserted?.length ?? 0;
+    warnings.push(`Auto-populated ${newTrainees} trainees from Canvas enrollment`);
   } else {
     for (const t of existingTrainees) {
       if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
       if (t.amalitech_email) traineeByEmail.set(t.amalitech_email.toLowerCase(), t.id);
+    }
+
+    // Append any Canvas students not yet in the cohort
+    const unmatched = enrollments.filter((e) => {
+      if (!e.user?.login_id || !e.user?.name) return false;
+      return !traineeByEmail.has(e.user.login_id.toLowerCase());
+    });
+
+    if (unmatched.length) {
+      const maxSerial = Math.max(0, ...(existingTrainees.map((t) => t.serial_no ?? 0)));
+      unmatched.sort((a, b) => a.user!.name!.localeCompare(b.user!.name!));
+
+      const toAppend = unmatched.map((e, i) => ({
+        cohort_id:      cohortId,
+        full_name:      e.user!.name!,
+        personal_email: e.user!.login_id!.toLowerCase(),
+        status:         "active" as const,
+        serial_no:      maxSerial + i + 1,
+      }));
+
+      const { data: appended, error: appendErr } = await svc
+        .from("trainees")
+        .upsert(toAppend, { onConflict: "cohort_id,personal_email", ignoreDuplicates: true })
+        .select("id, personal_email");
+
+      if (appendErr) {
+        warnings.push(`Failed to append new trainees: ${appendErr.message}`);
+      } else if (appended?.length) {
+        for (const t of appended) {
+          if (t.personal_email) traineeByEmail.set(t.personal_email.toLowerCase(), t.id);
+        }
+        newTrainees = appended.length;
+        warnings.push(`Appended ${newTrainees} new trainee(s) from Canvas`);
+      }
     }
   }
 
@@ -402,5 +438,5 @@ export async function syncCohortFromCanvas(cohortId: string): Promise<SyncResult
 
   revalidatePath(`/trainer/cohorts/${cohortId}/canvas`);
   revalidatePath(`/trainer/cohorts/${cohortId}`);
-  return { completions: upserts.length, skipped, warnings };
+  return { completions: upserts.length, skipped, newTrainees, warnings };
 }

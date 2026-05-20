@@ -69,6 +69,7 @@ export function SyncButton({ cohortId }: { cohortId: string }) {
   const [result, setResult] = useState<{
     completions?: number;
     skipped?: number;
+    newTrainees?: number;
     warnings?: string[];
     error?: string;
   } | null>(null);
@@ -82,7 +83,7 @@ export function SyncButton({ cohortId }: { cohortId: string }) {
             setResult(null);
             const r = await syncCohortFromCanvas(cohortId);
             if ("error" in r) setResult({ error: r.error });
-            else setResult({ completions: r.completions, skipped: r.skipped, warnings: r.warnings });
+            else setResult({ completions: r.completions, skipped: r.skipped, newTrainees: r.newTrainees, warnings: r.warnings });
           })
         }
         className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -116,6 +117,7 @@ export function SyncButton({ cohortId }: { cohortId: string }) {
           <p className="text-green-600">
             {result.completions} completion{result.completions !== 1 ? "s" : ""} upserted
             {result.skipped ? `, ${result.skipped} submissions skipped` : ""}
+            {result.newTrainees ? ` · ${result.newTrainees} new trainee${result.newTrainees !== 1 ? "s" : ""} added` : ""}
           </p>
           {result.warnings?.map((w, i) => (
             <p key={i} className={`text-xs ${w.toLowerCase().includes("error") ? "text-red-600" : "text-slate-500"}`}>

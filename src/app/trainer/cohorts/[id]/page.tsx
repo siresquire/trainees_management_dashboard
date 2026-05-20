@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import RosterUploadForm from "./RosterUploadForm";
+import AddTraineeForm from "./AddTraineeForm";
 import AutoRefresh from "@/components/AutoRefresh";
 import TraineesTable from "./TraineesTable";
 
@@ -123,10 +124,15 @@ export default async function CohortTraineesPage({
 
       {/* Roster upload */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
-        <h2 className="text-sm font-semibold text-slate-900 mb-1">Upload roster</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          Download the template, fill it in, then upload it here.
-        </p>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 mb-1">Upload roster</h2>
+            <p className="text-xs text-slate-500">
+              Download the template, fill it in, then upload it here.
+            </p>
+          </div>
+          {!isPractitioner && <AddTraineeForm cohortId={id} />}
+        </div>
         <RosterUploadForm
           cohortId={id}
           level={cohort?.level ?? "practitioner"}

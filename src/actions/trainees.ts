@@ -579,6 +579,69 @@ export async function impersonateTrainee(
   return { link: data?.properties?.action_link };
 }
 
+// ── Add a single trainee manually ─────────────────────────────────────────────
+
+export type AddTraineeState = { inserted?: true; error?: string } | null;
+
+export async function addSingleTrainee(
+  _prev: AddTraineeState,
+  formData: FormData,
+): Promise<AddTraineeState> {
+  const cohortId       = formData.get("cohort_id") as string;
+  const fullName       = (formData.get("full_name") as string)?.trim();
+  const personalEmail  = (formData.get("personal_email") as string)?.trim().toLowerCase();
+  const amalitechEmail = (formData.get("amalitech_email") as string)?.trim().toLowerCase() || null;
+
+  if (!fullName)        return { error: "Full name is required." };
+  if (!personalEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail))
+    return { error: "A valid personal email is required." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+  const isSuperAdmin = ["super_admin"].includes(profile?.role ?? "");
+
+  if (!isSuperAdmin) {
+    const { data: access } = await supabase
+      .from("cohort_access").select("id")
+      .eq("cohort_id", cohortId).eq("trainer_id", user.id).single();
+    if (!access) return { error: "Access denied." };
+  }
+
+  const svc = createServiceClient();
+
+  const { data: maxRow } = await svc
+    .from("trainees")
+    .select("serial_no")
+    .eq("cohort_id", cohortId)
+    .is("deleted_at", null)
+    .order("serial_no", { ascending: false, nullsFirst: false })
+    .limit(1);
+
+  const nextSerial = (maxRow?.[0]?.serial_no ?? 0) + 1;
+
+  const { error } = await svc.from("trainees").insert({
+    cohort_id:      cohortId,
+    full_name:      fullName,
+    personal_email: personalEmail,
+    amalitech_email: amalitechEmail,
+    serial_no:      nextSerial,
+    status:         "active",
+  });
+
+  if (error) {
+    if (error.code === "23505")
+      return { error: "A trainee with this email already exists in this cohort." };
+    return { error: error.message };
+  }
+
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+  return { inserted: true };
+}
+
 // ── Trainee: mark temp password as changed when they update their own password
 
 export async function markTempPasswordChanged(): Promise<{ error?: string }> {
