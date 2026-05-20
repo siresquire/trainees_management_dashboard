@@ -194,13 +194,13 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Pro
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Cohort Performance Radar</h2>
           <p className="text-xs text-slate-400 mb-4">Comparison of Labs, KCs, and Attendance completion % across cohorts</p>
           <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
-              <PolarGrid stroke="#f1f5f9" />
+            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
+              <PolarGrid stroke="#cbd5e1" />
               <PolarAngleAxis dataKey="cohort" tick={{ fontSize: 11 }} />
               <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Radar name="Labs"       dataKey="Labs"       stroke="#f97316" fill="#f97316" fillOpacity={0.18} />
-              <Radar name="KCs"        dataKey="KCs"        stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.18} />
-              <Radar name="Attendance" dataKey="Attendance" stroke="#10b981" fill="#10b981" fillOpacity={0.18} />
+              <Radar name="Labs"       dataKey="Labs"       stroke="#f97316" fill="#f97316" fillOpacity={0.3} strokeWidth={2} dot={true} />
+              <Radar name="KCs"        dataKey="KCs"        stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.3} strokeWidth={2} dot={true} />
+              <Radar name="Attendance" dataKey="Attendance" stroke="#10b981" fill="#10b981" fillOpacity={0.3} strokeWidth={2} dot={true} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
               <Tooltip formatter={(v) => `${v}%`} />
             </RadarChart>
