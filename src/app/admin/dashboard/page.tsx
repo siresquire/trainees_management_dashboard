@@ -1,7 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import AdminDashboardClient, { type AdminTraineeRow } from "./AdminDashboardClient";
 
-export type SessionInfo = { id: string; cohortId: string; weekNumber: number };
+export type SessionInfo = { id: string; cohortId: string; weekNumber: number | null };
 export type TaskInfo    = { id: string; cohortId: string; taskType: string; weekNumber: number };
 export type QuizInfo    = { id: string; cohortId: string; quizName: string; weekNumber: number; maxScore: number };
 
@@ -26,7 +26,7 @@ export default async function AdminDashboardPage() {
     );
   }
 
-  // ── Round 2: all queries that only need cohortIds ──────────────────────────
+  // ── Round 2: cohort-level data (all parallel) ──────────────────────────────
   const [
     { data: cohortAccess },
     { data: trainees },
@@ -52,15 +52,14 @@ export default async function AdminDashboardPage() {
   const ownerIdByCohort = new Map<string, string>((cohortAccess ?? []).map((a) => [a.cohort_id, a.trainer_id]));
   const ownerIds   = [...new Set((cohortAccess ?? []).map((a) => a.trainer_id))];
   const traineeIds = (trainees ?? []).map((t) => t.id);
-  const taskIds    = (tasks    ?? []).map((t) => t.id);
-  const sessionIds = (sessions ?? []).map((s) => s.id);
 
   // ── Round 3: trainee-level data — all in parallel ─────────────────────────
+  // Completion and attendance use SECURITY DEFINER RPCs to bypass PostgREST
+  // max-rows cap (which silently truncates direct SELECT queries at ~1000 rows).
   const [
     { data: profiles },
-    { data: completions },
-    { data: attendance },
-    { data: overrides },
+    { data: completionRows },
+    { data: attendanceRows },
     { data: vouchers },
     { data: examQuizzes },
     { data: examScores },
@@ -68,15 +67,12 @@ export default async function AdminDashboardPage() {
     ownerIds.length
       ? svc.from("profiles").select("id, full_name").in("id", ownerIds)
       : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
-    taskIds.length && traineeIds.length
-      ? svc.from("completions").select("trainee_id, task_id").in("trainee_id", traineeIds).in("task_id", taskIds).limit(1000000)
-      : Promise.resolve({ data: [] as { trainee_id: string; task_id: string }[] }),
-    sessionIds.length && traineeIds.length
-      ? svc.from("attendance").select("trainee_id, session_id").in("trainee_id", traineeIds).in("session_id", sessionIds).in("status", ["present", "partial"]).limit(500000)
-      : Promise.resolve({ data: [] as { trainee_id: string; session_id: string }[] }),
-    sessionIds.length && traineeIds.length
-      ? svc.from("attendance_overrides").select("trainee_id, session_id").in("session_id", sessionIds).in("trainee_id", traineeIds)
-      : Promise.resolve({ data: [] as { trainee_id: string; session_id: string }[] }),
+    cohortIds.length
+      ? svc.rpc("get_admin_completion_summary", { p_cohort_ids: cohortIds })
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number; lab_count: number; kc_count: number }[] }),
+    cohortIds.length
+      ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[] }),
     traineeIds.length
       ? svc.from("vouchers").select("trainee_id, voucher_code, attempt_no").in("trainee_id", traineeIds).order("attempt_no", { ascending: false })
       : Promise.resolve({ data: [] as { trainee_id: string; voucher_code: string | null; attempt_no: number }[] }),
@@ -91,12 +87,10 @@ export default async function AdminDashboardPage() {
   // ── Aggregate ──────────────────────────────────────────────────────────────
   const profileNameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
 
-  // Task lookups — use Sets for per-trainee tracking to deduplicate
-  const taskTypeMap      = new Map<string, string>();
+  // Task totals per cohort
   const labTotalByCohort = new Map<string, number>();
   const kcTotalByCohort  = new Map<string, number>();
   for (const t of tasks ?? []) {
-    taskTypeMap.set(t.id, t.task_type);
     if (t.task_type === "lab") labTotalByCohort.set(t.cohort_id, (labTotalByCohort.get(t.cohort_id) ?? 0) + 1);
     if (t.task_type === "kc")  kcTotalByCohort.set(t.cohort_id,  (kcTotalByCohort.get(t.cohort_id)  ?? 0) + 1);
   }
@@ -106,41 +100,39 @@ export default async function AdminDashboardPage() {
     sessionsByCohort.set(s.cohort_id, (sessionsByCohort.get(s.cohort_id) ?? 0) + 1);
   }
 
-  // Per-trainee Sets (deduplication is automatic)
-  const completedLabsByTrainee = new Map<string, Set<string>>();
-  const completedKcsByTrainee  = new Map<string, Set<string>>();
-  for (const c of completions ?? []) {
-    const type = taskTypeMap.get(c.task_id);
-    if (type === "lab") {
-      const s = completedLabsByTrainee.get(c.trainee_id) ?? new Set<string>();
-      s.add(c.task_id);
-      completedLabsByTrainee.set(c.trainee_id, s);
-    } else if (type === "kc") {
-      const s = completedKcsByTrainee.get(c.trainee_id) ?? new Set<string>();
-      s.add(c.task_id);
-      completedKcsByTrainee.set(c.trainee_id, s);
-    }
+  // Per-trainee weekly stats from RPCs (week_number -> labs/kcs/attendance done)
+  // Structure: Map<traineeId, Map<weekNumber|"null", { labs, kcs, sessions }>>
+  type WeekBucket = { labs: number; kcs: number; sessions: number };
+  const weeklyByTrainee = new Map<string, Map<string, WeekBucket>>();
+
+  for (const row of completionRows ?? []) {
+    const tid = String(row.trainee_id);
+    const key = String(row.week_number);
+    const traineeMap = weeklyByTrainee.get(tid) ?? new Map<string, WeekBucket>();
+    const bucket = traineeMap.get(key) ?? { labs: 0, kcs: 0, sessions: 0 };
+    bucket.labs += Number(row.lab_count);
+    bucket.kcs  += Number(row.kc_count);
+    traineeMap.set(key, bucket);
+    weeklyByTrainee.set(tid, traineeMap);
   }
 
-  // Attended session IDs per trainee: present/partial + excused overrides
-  const attendedSessionsByTrainee = new Map<string, Set<string>>();
-  for (const a of attendance ?? []) {
-    const s = attendedSessionsByTrainee.get(a.trainee_id) ?? new Set<string>();
-    s.add(a.session_id);
-    attendedSessionsByTrainee.set(a.trainee_id, s);
-  }
-  for (const o of overrides ?? []) {
-    const s = attendedSessionsByTrainee.get(o.trainee_id) ?? new Set<string>();
-    s.add(o.session_id);
-    attendedSessionsByTrainee.set(o.trainee_id, s);
+  for (const row of attendanceRows ?? []) {
+    const tid = String(row.trainee_id);
+    const key = row.week_number !== null ? String(row.week_number) : "__null__";
+    const traineeMap = weeklyByTrainee.get(tid) ?? new Map<string, WeekBucket>();
+    const bucket = traineeMap.get(key) ?? { labs: 0, kcs: 0, sessions: 0 };
+    bucket.sessions += Number(row.attended_count);
+    traineeMap.set(key, bucket);
+    weeklyByTrainee.set(tid, traineeMap);
   }
 
+  // Vouchers
   const voucherByTrainee = new Map<string, string | null>();
   for (const v of vouchers ?? []) {
     if (!voucherByTrainee.has(v.trainee_id)) voucherByTrainee.set(v.trainee_id, v.voucher_code ?? null);
   }
 
-  // Best quiz score per trainee per quiz
+  // Best quiz scores
   const bestQuizScore = new Map<string, number>(); // `${traineeId}:${quizId}`
   for (const s of examScores ?? []) {
     const key  = `${s.trainee_id}:${s.quiz_id}`;
@@ -148,7 +140,6 @@ export default async function AdminDashboardPage() {
     if (prev === undefined || s.score > prev) bestQuizScore.set(key, s.score);
   }
 
-  // Quiz list per cohort (ordered by week)
   const quizzesByCohort = new Map<string, { id: string; quiz_name: string; week_number: number; max_score: number }[]>();
   for (const q of examQuizzes ?? []) {
     const arr = quizzesByCohort.get(q.cohort_id) ?? [];
@@ -160,36 +151,46 @@ export default async function AdminDashboardPage() {
 
   // ── Build rows ─────────────────────────────────────────────────────────────
   const rows: AdminTraineeRow[] = (trainees ?? []).map((t) => {
-    const cohort           = cohortMap.get(t.cohort_id);
-    const ownerId          = ownerIdByCohort.get(t.cohort_id);
-    const completedLabs    = completedLabsByTrainee.get(t.id) ?? new Set<string>();
-    const completedKcs     = completedKcsByTrainee.get(t.id)  ?? new Set<string>();
-    const attendedSessions = attendedSessionsByTrainee.get(t.id) ?? new Set<string>();
-    const cohortQuizzes    = quizzesByCohort.get(t.cohort_id) ?? [];
+    const cohort        = cohortMap.get(t.cohort_id);
+    const ownerId       = ownerIdByCohort.get(t.cohort_id);
+    const traineeWeeks  = weeklyByTrainee.get(t.id);
+    const cohortQuizzes = quizzesByCohort.get(t.cohort_id) ?? [];
+
+    // Build weeklyStats array and sum all-time totals
+    const weeklyStats: AdminTraineeRow["weeklyStats"] = [];
+    let labsDone = 0, kcsDone = 0, sessionsAttended = 0;
+
+    if (traineeWeeks) {
+      for (const [key, bucket] of traineeWeeks) {
+        const weekNumber = key === "__null__" ? null : Number(key);
+        weeklyStats.push({ weekNumber, labsDone: bucket.labs, kcsDone: bucket.kcs, sessionsAttended: bucket.sessions });
+        labsDone        += bucket.labs;
+        kcsDone         += bucket.kcs;
+        sessionsAttended += bucket.sessions;
+      }
+    }
 
     return {
-      traineeId:          t.id,
-      serialNo:           t.serial_no,
-      fullName:           t.full_name,
-      personalEmail:      t.personal_email,
-      amalitechEmail:     t.amalitech_email,
-      status:             t.status,
-      examApproved:       t.exam_approved ?? false,
-      labsDone:           completedLabs.size,
-      labsTotal:          labTotalByCohort.get(t.cohort_id) ?? 0,
-      kcsDone:            completedKcs.size,
-      kcsTotal:           kcTotalByCohort.get(t.cohort_id) ?? 0,
-      sessionsAttended:   attendedSessions.size,
-      sessionsTotal:      sessionsByCohort.get(t.cohort_id) ?? 0,
-      cohortId:           t.cohort_id,
-      cohortCode:         cohort?.code_name ?? cohort?.name ?? "—",
-      cohortLevel:        cohort?.level ?? "practitioner",
-      trainerName:        ownerId ? (profileNameById.get(ownerId) ?? "—") : "—",
-      issuedVoucher:      voucherByTrainee.get(t.id) ?? null,
-      attendedSessionIds: [...attendedSessions],
-      completedLabIds:    [...completedLabs],
-      completedKcIds:     [...completedKcs],
-      quizScores:         cohortQuizzes
+      traineeId:        t.id,
+      serialNo:         t.serial_no,
+      fullName:         t.full_name,
+      personalEmail:    t.personal_email,
+      amalitechEmail:   t.amalitech_email,
+      status:           t.status,
+      examApproved:     t.exam_approved ?? false,
+      labsDone,
+      labsTotal:        labTotalByCohort.get(t.cohort_id) ?? 0,
+      kcsDone,
+      kcsTotal:         kcTotalByCohort.get(t.cohort_id) ?? 0,
+      sessionsAttended,
+      sessionsTotal:    sessionsByCohort.get(t.cohort_id) ?? 0,
+      cohortId:         t.cohort_id,
+      cohortCode:       cohort?.code_name ?? cohort?.name ?? "—",
+      cohortLevel:      cohort?.level ?? "practitioner",
+      trainerName:      ownerId ? (profileNameById.get(ownerId) ?? "—") : "—",
+      issuedVoucher:    voucherByTrainee.get(t.id) ?? null,
+      weeklyStats,
+      quizScores:       cohortQuizzes
         .map((q) => ({ quizId: q.id, score: bestQuizScore.get(`${t.id}:${q.id}`) ?? null }))
         .filter((qs): qs is { quizId: string; score: number } => qs.score !== null),
     };
@@ -203,9 +204,11 @@ export default async function AdminDashboardPage() {
     return (a.serialNo ?? 9999) - (b.serialNo ?? 9999);
   });
 
-  const allSessions: SessionInfo[] = (sessions ?? [])
-    .filter((s): s is typeof s & { week_number: number } => s.week_number !== null)
-    .map((s) => ({ id: s.id, cohortId: s.cohort_id, weekNumber: s.week_number }));
+  const allSessions: SessionInfo[] = (sessions ?? []).map((s) => ({
+    id: s.id,
+    cohortId: s.cohort_id,
+    weekNumber: s.week_number,
+  }));
 
   const allTasks: TaskInfo[] = (tasks ?? []).map((t) => ({
     id: t.id,

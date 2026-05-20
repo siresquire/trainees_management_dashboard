@@ -7,30 +7,28 @@ import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "
 import type { SessionInfo, TaskInfo, QuizInfo } from "./page";
 
 export type AdminTraineeRow = {
-  traineeId:          string;
-  serialNo:           number | null;
-  fullName:           string;
-  personalEmail:      string;
-  amalitechEmail:     string | null;
-  status:             string;
-  examApproved:       boolean;
-  labsDone:           number;
-  labsTotal:          number;
-  kcsDone:            number;
-  kcsTotal:           number;
-  sessionsAttended:   number;
-  sessionsTotal:      number;
-  cohortId:           string;
-  cohortCode:         string;
-  cohortLevel:        string;
-  trainerName:        string;
-  issuedVoucher:      string | null;
-  // For week filter
-  attendedSessionIds: string[];
-  completedLabIds:    string[];
-  completedKcIds:     string[];
+  traineeId:        string;
+  serialNo:         number | null;
+  fullName:         string;
+  personalEmail:    string;
+  amalitechEmail:   string | null;
+  status:           string;
+  examApproved:     boolean;
+  labsDone:         number;
+  labsTotal:        number;
+  kcsDone:          number;
+  kcsTotal:         number;
+  sessionsAttended: number;
+  sessionsTotal:    number;
+  cohortId:         string;
+  cohortCode:       string;
+  cohortLevel:      string;
+  trainerName:      string;
+  issuedVoucher:    string | null;
+  // Per-week breakdown for the week filter (from server-side RPC aggregation)
+  weeklyStats:      Array<{ weekNumber: number | null; labsDone: number; kcsDone: number; sessionsAttended: number }>;
   // For quiz panel
-  quizScores:         Array<{ quizId: string; score: number }>;
+  quizScores:       Array<{ quizId: string; score: number }>;
 };
 
 type Props = {
@@ -102,7 +100,7 @@ export default function AdminDashboardClient({
 
   const availableWeeks = useMemo(() => {
     const weeks = new Set<number>();
-    for (const s of allSessions) if (levelCohortIds.has(s.cohortId)) weeks.add(s.weekNumber);
+    for (const s of allSessions) if (levelCohortIds.has(s.cohortId) && s.weekNumber !== null) weeks.add(s.weekNumber);
     for (const t of allTasks)    if (levelCohortIds.has(t.cohortId)) weeks.add(t.weekNumber);
     return [...weeks].sort((a, b) => a - b);
   }, [allSessions, allTasks, levelCohortIds]);
@@ -120,22 +118,22 @@ export default function AdminDashboardClient({
     return result;
   }, [levelRows, trainerFilter, cohortFilter, searchQuery]);
 
-  // ── Week-filtered cohort stats ───────────────────────────────────────────
+  // ── Week-filtered cohort totals (denominators) ───────────────────────────
   const cohortWeekStats = useMemo(() => {
     if (weekFilter.size === 0) return null;
-    const map = new Map<string, { labIds: Set<string>; kcIds: Set<string>; sessionIds: Set<string> }>();
-    for (const s of allSessions) {
-      if (!weekFilter.has(s.weekNumber) || !levelCohortIds.has(s.cohortId)) continue;
-      const stat = map.get(s.cohortId) ?? { labIds: new Set(), kcIds: new Set(), sessionIds: new Set() };
-      stat.sessionIds.add(s.id);
-      map.set(s.cohortId, stat);
-    }
+    const map = new Map<string, { labsTotal: number; kcsTotal: number; sessionsTotal: number }>();
     for (const t of allTasks) {
       if (!weekFilter.has(t.weekNumber) || !levelCohortIds.has(t.cohortId)) continue;
-      const stat = map.get(t.cohortId) ?? { labIds: new Set(), kcIds: new Set(), sessionIds: new Set() };
-      if (t.taskType === "lab") stat.labIds.add(t.id);
-      else if (t.taskType === "kc") stat.kcIds.add(t.id);
+      const stat = map.get(t.cohortId) ?? { labsTotal: 0, kcsTotal: 0, sessionsTotal: 0 };
+      if (t.taskType === "lab") stat.labsTotal++;
+      else if (t.taskType === "kc") stat.kcsTotal++;
       map.set(t.cohortId, stat);
+    }
+    for (const s of allSessions) {
+      if (s.weekNumber === null || !weekFilter.has(s.weekNumber) || !levelCohortIds.has(s.cohortId)) continue;
+      const stat = map.get(s.cohortId) ?? { labsTotal: 0, kcsTotal: 0, sessionsTotal: 0 };
+      stat.sessionsTotal++;
+      map.set(s.cohortId, stat);
     }
     return map;
   }, [allSessions, allTasks, weekFilter, levelCohortIds]);
@@ -144,15 +142,16 @@ export default function AdminDashboardClient({
     if (!cohortWeekStats) {
       return { labsDone: r.labsDone, labsTotal: r.labsTotal, kcsDone: r.kcsDone, kcsTotal: r.kcsTotal, sessionsAttended: r.sessionsAttended, sessionsTotal: r.sessionsTotal };
     }
+    // Sum per-week done counts from the RPC-derived weeklyStats
+    const ws = r.weeklyStats.filter((w) => w.weekNumber !== null && weekFilter.has(w.weekNumber));
+    const labsDone         = ws.reduce((s, w) => s + w.labsDone, 0);
+    const kcsDone          = ws.reduce((s, w) => s + w.kcsDone, 0);
+    const sessionsAttended = ws.reduce((s, w) => s + w.sessionsAttended, 0);
     const stat = cohortWeekStats.get(r.cohortId);
-    if (!stat) return { labsDone: 0, labsTotal: 0, kcsDone: 0, kcsTotal: 0, sessionsAttended: 0, sessionsTotal: 0 };
     return {
-      labsDone:         r.completedLabIds.filter((id) => stat.labIds.has(id)).length,
-      labsTotal:        stat.labIds.size,
-      kcsDone:          r.completedKcIds.filter((id) => stat.kcIds.has(id)).length,
-      kcsTotal:         stat.kcIds.size,
-      sessionsAttended: r.attendedSessionIds.filter((id) => stat.sessionIds.has(id)).length,
-      sessionsTotal:    stat.sessionIds.size,
+      labsDone, labsTotal: stat?.labsTotal ?? 0,
+      kcsDone,  kcsTotal:  stat?.kcsTotal  ?? 0,
+      sessionsAttended, sessionsTotal: stat?.sessionsTotal ?? 0,
     };
   }
 
