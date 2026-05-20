@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import AppShell, { type NavItem } from "@/components/AppShell";
 
 const NAV: NavItem[] = [
-  { href: "/trainer/dashboard",       label: "Cohorts",        icon: "grid",     exact: true },
-  { href: "/trainer/question-banks",  label: "Question Banks", icon: "quiz"                  },
-  { href: "/trainer/profile",         label: "My Profile",     icon: "settings", exact: true },
+  { href: "/trainer/dashboard",      label: "Cohorts",        icon: "grid",     exact: true },
+  { href: "/trainer/overview",       label: "Overview",       icon: "chart"                 },
+  { href: "/trainer/question-banks", label: "Question Banks", icon: "quiz"                  },
+  { href: "/trainer/profile",        label: "My Profile",     icon: "settings", exact: true },
 ];
 
 export default async function TrainerLayout({ children }: { children: React.ReactNode }) {

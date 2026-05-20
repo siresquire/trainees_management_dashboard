@@ -42,6 +42,7 @@ function getTabs(level: string) {
     { label: "Quizzes",    href: "/quizzes"    },
     { label: "Exams",      href: "/exams"      },
     { label: "Attendance", href: "/attendance" },
+    { label: "Analytics",  href: "/analytics"  },
   ];
 }
 
