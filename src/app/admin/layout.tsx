@@ -22,8 +22,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   if (!["admin", "super_admin"].includes(profile?.role ?? "")) redirect("/login");
 
+  const isSuperAdmin = profile?.role === "super_admin";
+
   return (
-    <AppShell navItems={NAV} user={{ name: profile?.full_name ?? "Admin", role: profile?.role ?? "admin" }} settingsHref="/admin/profile">
+    <AppShell
+      navItems={NAV}
+      user={{ name: profile?.full_name ?? "Admin", role: profile?.role ?? "admin" }}
+      settingsHref="/admin/profile"
+      backHref={isSuperAdmin ? "/superadmin/dashboard" : undefined}
+      backLabel={isSuperAdmin ? "Super Admin" : undefined}
+    >
       {children}
     </AppShell>
   );

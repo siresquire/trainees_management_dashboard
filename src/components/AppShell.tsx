@@ -24,9 +24,11 @@ interface Props {
   user: { name: string; role: string };
   theme?: AppShellTheme;
   settingsHref?: string;
+  backHref?: string;
+  backLabel?: string;
 }
 
-export default function AppShell({ children, navItems, user, theme = "light", settingsHref }: Props) {
+export default function AppShell({ children, navItems, user, theme = "light", settingsHref, backHref, backLabel }: Props) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -94,6 +96,20 @@ export default function AppShell({ children, navItems, user, theme = "light", se
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+          {backHref && (
+            <>
+              <Link
+                href={backHref}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${textMuted} ${hoverBg}`}
+              >
+                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                {backLabel ?? "Back"}
+              </Link>
+              <div className={`my-2 border-t ${divider}`} />
+            </>
+          )}
           {navItems.map((item) => (
             <Link
               key={item.href}
