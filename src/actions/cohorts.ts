@@ -238,7 +238,7 @@ export async function updateCohortStatus(
 
   if (error) return { error: error.message };
 
-  revalidateTag("cohorts");
+  revalidateTag("cohorts", {});
   revalidatePath("/trainer/dashboard");
   revalidatePath("/superadmin/dashboard");
   revalidatePath(`/trainer/cohorts/${cohortId}`);
@@ -348,7 +348,7 @@ export async function updateCohortExamType(
     .eq("id", cohortId);
 
   if (error) return { error: error.message };
-  revalidateTag("cohorts");
+  revalidateTag("cohorts", {});
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
   return { success: true };
@@ -386,7 +386,7 @@ export async function updateCohortCodeName(
     .eq("id", cohortId);
 
   if (error) return { error: error.message };
-  revalidateTag("cohorts");
+  revalidateTag("cohorts", {});
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return { success: true };
 }
