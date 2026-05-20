@@ -38,7 +38,7 @@ export default async function ExamsPage({
         ? supabase.from("exam_scores").select("id, quiz_id, trainee_id, score, attempt_no, uploaded_at").in("quiz_id", quizIds)
         : Promise.resolve({ data: [] as { id: string; quiz_id: string; trainee_id: string; score: number; attempt_no: number; uploaded_at: string }[] }),
       traineeIds.length
-        ? supabase.from("vouchers").select("id, trainee_id, exam_type, issued_date, attempt_no, voucher_code").in("trainee_id", traineeIds).order("created_at", { ascending: true })
+        ? supabase.from("vouchers").select("id, trainee_id, exam_type, issued_date, attempt_no, voucher_code").in("trainee_id", traineeIds).is("revoked_at", null).order("created_at", { ascending: true })
         : Promise.resolve({ data: [] as { id: string; trainee_id: string; exam_type: string; issued_date: string; attempt_no: number; voucher_code: string | null }[] }),
       traineeIds.length
         ? supabase.from("voucher_pool").select("id, trainee_id, voucher_code").eq("cohort_id", id).eq("is_used", false).not("trainee_id", "is", null)

@@ -63,6 +63,79 @@ export async function getAdminVoucherPool(
   return { data: data ?? [] };
 }
 
+export async function deleteAdminVoucherPoolEntry(
+  id: string,
+): Promise<{ error?: string }> {
+  try {
+    await assertAdmin();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("admin_voucher_pool")
+    .delete()
+    .eq("id", id)
+    .eq("is_used", false); // only allow deleting unused codes
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin/vouchers");
+  revalidatePath("/admin/dashboard");
+  return {};
+}
+
+export async function deleteAdminVoucherPoolEntries(
+  ids: string[],
+): Promise<{ deleted: number; error?: string }> {
+  try {
+    await assertAdmin();
+  } catch (e) {
+    return { deleted: 0, error: (e as Error).message };
+  }
+
+  if (!ids.length) return { deleted: 0 };
+
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("admin_voucher_pool")
+    .delete()
+    .in("id", ids)
+    .eq("is_used", false)
+    .select("id");
+
+  if (error) return { deleted: 0, error: error.message };
+  revalidatePath("/admin/vouchers");
+  revalidatePath("/admin/dashboard");
+  return { deleted: (data ?? []).length };
+}
+
+export async function updateAdminVoucherPoolCode(
+  id: string,
+  newCode: string,
+): Promise<{ error?: string }> {
+  try {
+    await assertAdmin();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const trimmed = newCode.trim();
+  if (!trimmed) return { error: "Code cannot be empty" };
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("admin_voucher_pool")
+    .update({ voucher_code: trimmed })
+    .eq("id", id)
+    .eq("is_used", false);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin/vouchers");
+  revalidatePath("/admin/dashboard");
+  return {};
+}
+
 export type ExamType = "CCP" | "SAA-C03" | "DVA-C02" | "SAP-C02" | "DOP-C02";
 
 export async function issueVouchersToTrainees(

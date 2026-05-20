@@ -600,7 +600,7 @@ export default function AdminDashboardClient({
                         </td>
                         <td className="px-3 py-3 text-center">
                           {r.examApproved
-                            ? <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Exam approved"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            ? <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-label="Exam approved"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-3">
