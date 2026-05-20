@@ -36,8 +36,9 @@ export default async function TraineeExamsPage() {
       .eq("cohort_id", trainee.cohort_id)
       .order("created_at", { ascending: true }),
     supabase.from("vouchers")
-      .select("id, exam_type, issued_date, attempt_no, voucher_code")
+      .select("id, exam_type, issued_date, attempt_no, voucher_code, deadline, revoked_at")
       .eq("trainee_id", trainee.id)
+      .is("revoked_at", null)
       .order("created_at", { ascending: true }),
     supabase.from("exam_outcomes")
       .select("id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported")
@@ -54,13 +55,11 @@ export default async function TraineeExamsPage() {
     quizIds.length
       ? supabase.from("exam_scores").select("quiz_id, trainee_id, score").in("quiz_id", quizIds)
       : Promise.resolve({ data: [] as { quiz_id: string; trainee_id: string; score: number }[] }),
-    // Load existing appointments (table created by migration 20260520000003)
     createServiceClient()
       .from("exam_appointments")
       .select("id, voucher_id, exam_date, exam_time, exam_location, submitted_at")
       .eq("trainee_id", trainee.id)
-      .order("submitted_at", { ascending: false })
-      .then((r) => r.error ? { data: [] as { id: string; voucher_id: string | null; exam_date: string; exam_time: string; exam_location: string; submitted_at: string }[] } : r),
+      .order("submitted_at", { ascending: false }),
   ]);
 
   // Best score per quiz
@@ -126,7 +125,7 @@ export default async function TraineeExamsPage() {
         issued_date:        v.issued_date as string,
         attempt_no:         v.attempt_no as number,
         voucher_code:       (v.voucher_code as string | null) ?? null,
-        deadline:           null,
+        deadline:           (v.deadline as string | null) ?? null,
         appointment_submitted: appointedVoucherIds.has(v.id),
       }))}
       outcomes={(myOutcomes ?? []).map((o) => ({
