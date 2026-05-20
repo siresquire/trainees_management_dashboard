@@ -13,78 +13,44 @@ export default async function ExamsPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: cohort } = await supabase
-    .from("cohorts")
-    .select("level, exam_type, analytics_threshold")
-    .eq("id", id)
-    .single();
+  // Round 1: cohort + trainees + quizzes — all independent
+  const [{ data: cohort }, { data: trainees }, { data: quizzes }] = await Promise.all([
+    supabase.from("cohorts").select("level, exam_type, analytics_threshold").eq("id", id).single(),
+    supabase.from("trainees").select("id, serial_no, full_name, personal_email, amalitech_email, show_readiness, exam_approved").eq("cohort_id", id).is("deleted_at", null).eq("status", "active").order("serial_no", { ascending: true, nullsFirst: false }),
+    supabase.from("exam_quizzes").select("id, quiz_name, focus_type, focus_label, week_number, quiz_date, max_score, created_at").eq("cohort_id", id).order("created_at", { ascending: true }),
+  ]);
 
-  // Active non-deleted trainees for this cohort
-  const { data: trainees } = await supabase
-    .from("trainees")
-    .select("id, serial_no, full_name, personal_email, amalitech_email, show_readiness, exam_approved")
-    .eq("cohort_id", id)
-    .is("deleted_at", null)
-    .eq("status", "active")
-    .order("serial_no", { ascending: true, nullsFirst: false });
-
-  // Quizzes / tests for this cohort
-  const { data: quizzes } = await supabase
-    .from("exam_quizzes")
-    .select("id, quiz_name, focus_type, focus_label, week_number, quiz_date, max_score, created_at")
-    .eq("cohort_id", id)
-    .order("created_at", { ascending: true });
-
-  const traineeIds = (trainees ?? []).map((t) => t.id);
-  const quizIds    = (quizzes  ?? []).map((q) => q.id);
-
-  // All scores for these quizzes
-  const { data: scores } = quizIds.length
-    ? await supabase
-        .from("exam_scores")
-        .select("id, quiz_id, trainee_id, score, attempt_no, uploaded_at")
-        .in("quiz_id", quizIds)
-    : { data: [] };
-
-  // Vouchers for trainees in this cohort
-  const { data: vouchers } = traineeIds.length
-    ? await supabase
-        .from("vouchers")
-        .select("id, trainee_id, exam_type, issued_date, attempt_no, voucher_code")
-        .in("trainee_id", traineeIds)
-        .order("created_at", { ascending: true })
-    : { data: [] };
-
-  // Pre-uploaded (unissued) voucher codes for this cohort
-  const { data: pooledVouchers } = traineeIds.length
-    ? await supabase
-        .from("voucher_pool")
-        .select("id, trainee_id, voucher_code")
-        .eq("cohort_id", id)
-        .eq("is_used", false)
-        .not("trainee_id", "is", null)
-    : { data: [] };
-
-  // Official exam outcomes for trainees in this cohort
-  const { data: outcomes } = traineeIds.length
-    ? await supabase
-        .from("exam_outcomes")
-        .select("id, trainee_id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported")
-        .in("trainee_id", traineeIds)
-        .order("attempt_no", { ascending: true })
-    : { data: [] };
-
-  // ── Current-cohort completion data for analytics display ─────────────────────
-  // Use the same proven RPC as the trainees list; authenticated client passes the
-  // RPC's own auth check, and SECURITY DEFINER bypasses RLS inside the function.
+  const traineeIds  = (trainees ?? []).map((t) => t.id);
+  const quizIds     = (quizzes  ?? []).map((q) => q.id);
   const cohortLevel = cohort?.level ?? "practitioner";
+  const svc         = createServiceClient();
 
+  // Round 2: scores + vouchers + pooled vouchers + outcomes + completion summary
+  //          + same-level cohort IDs — all independent of each other, all fire in parallel
   const [
-    { data: completionSummary },
-    { data: currentCohortTasks },
+    [{ data: scores }, { data: vouchers }, { data: pooledVouchers }, { data: outcomes }],
+    [{ data: completionSummary }, { data: currentCohortTasks }],
+    { data: sameLevelCohorts },
   ] = await Promise.all([
-    supabase.rpc("get_cohort_completion_summary", { p_cohort_id: id }),
-    supabase.from("cohort_week_tasks").select("id, task_type").eq("cohort_id", id),
+    Promise.all([
+      quizIds.length
+        ? supabase.from("exam_scores").select("id, quiz_id, trainee_id, score, attempt_no, uploaded_at").in("quiz_id", quizIds)
+        : Promise.resolve({ data: [] as { id: string; quiz_id: string; trainee_id: string; score: number; attempt_no: number; uploaded_at: string }[] }),
+      traineeIds.length
+        ? supabase.from("vouchers").select("id, trainee_id, exam_type, issued_date, attempt_no, voucher_code").in("trainee_id", traineeIds).order("created_at", { ascending: true })
+        : Promise.resolve({ data: [] as { id: string; trainee_id: string; exam_type: string; issued_date: string; attempt_no: number; voucher_code: string | null }[] }),
+      traineeIds.length
+        ? supabase.from("voucher_pool").select("id, trainee_id, voucher_code").eq("cohort_id", id).eq("is_used", false).not("trainee_id", "is", null)
+        : Promise.resolve({ data: [] as { id: string; trainee_id: string | null; voucher_code: string }[] }),
+      traineeIds.length
+        ? supabase.from("exam_outcomes").select("id, trainee_id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported").in("trainee_id", traineeIds).order("attempt_no", { ascending: true })
+        : Promise.resolve({ data: [] as { id: string; trainee_id: string; exam_type: string; actual_score: number | null; outcome: string; exam_date: string | null; attempt_no: number; notes: string | null; self_reported: boolean }[] }),
+    ]),
+    Promise.all([
+      supabase.rpc("get_cohort_completion_summary", { p_cohort_id: id }),
+      supabase.from("cohort_week_tasks").select("id, task_type").eq("cohort_id", id),
+    ]),
+    svc.from("cohorts").select("id").eq("level", cohortLevel),
   ]);
 
   const totalLabTasks = (currentCohortTasks ?? []).filter((t) => t.task_type === "lab").length;
@@ -98,21 +64,9 @@ export default async function ExamsPage({
     if (totalKcTasks  > 0) kcPctByTrainee.set(tid,  (Number(row.kc_count)  / totalKcTasks)  * 100);
   }
 
-  // ── Regression: build training set from ALL same-level cohorts ──────────────
-  // Use service client for cross-cohort queries so RLS on other cohorts doesn't
-  // block historical data needed for the regression model.
-
-  const svc = createServiceClient();
-
-  // 1. All cohort IDs of the same level (including the current one)
-  const { data: sameLevelCohorts } = await svc
-    .from("cohorts")
-    .select("id")
-    .eq("level", cohortLevel);
-
   const allCohortIds = (sameLevelCohorts ?? []).map((c) => c.id);
 
-  // 2. All trainees across those cohorts
+  // svc Round 3: all trainees across same-level cohorts (must follow Round 2 to get allCohortIds)
   const { data: allCohortTrainees } = allCohortIds.length
     ? await svc
         .from("trainees")
@@ -122,63 +76,63 @@ export default async function ExamsPage({
     : { data: [] };
 
   const allTraineeIds = (allCohortTrainees ?? []).map((t) => t.id);
-  // Map trainee → cohort for quick lookup
   const traineeCohortMap = new Map<string, string>(
     (allCohortTrainees ?? []).map((t) => [t.id, t.cohort_id])
   );
 
-  // 3. First-attempt exam outcomes (passed/failed) — these are our training labels
-  const { data: historicalOutcomes } = allTraineeIds.length
-    ? await svc
-        .from("exam_outcomes")
-        .select("trainee_id, actual_score, outcome, attempt_no")
-        .in("trainee_id", allTraineeIds)
-        .in("outcome", ["passed", "failed"])
-        .eq("attempt_no", 1)
-    : { data: [] };
+  // svc Round 4: historical outcomes + quiz definitions + task definitions
+  //              all depend only on allCohortIds / allTraineeIds — run in parallel
+  const [
+    { data: historicalOutcomes },
+    { data: allQuizzes },
+    { data: allTasks },
+  ] = await Promise.all([
+    allTraineeIds.length
+      ? svc
+          .from("exam_outcomes")
+          .select("trainee_id, actual_score, outcome, attempt_no")
+          .in("trainee_id", allTraineeIds)
+          .in("outcome", ["passed", "failed"])
+          .eq("attempt_no", 1)
+      : Promise.resolve({ data: [] as { trainee_id: string; actual_score: number | null; outcome: string; attempt_no: number }[] }),
+    allCohortIds.length
+      ? svc
+          .from("exam_quizzes")
+          .select("id, cohort_id, max_score")
+          .in("cohort_id", allCohortIds)
+      : Promise.resolve({ data: [] as { id: string; cohort_id: string; max_score: number }[] }),
+    allCohortIds.length
+      ? svc
+          .from("cohort_week_tasks")
+          .select("id, cohort_id, task_type")
+          .in("cohort_id", allCohortIds)
+      : Promise.resolve({ data: [] as { id: string; cohort_id: string; task_type: string }[] }),
+  ]);
 
   const labelledTraineeIds = [...new Set((historicalOutcomes ?? []).map((o) => o.trainee_id))];
-
-  // 4. Quiz scores for labelled trainees (to compute quiz avg feature)
-  const { data: allQuizzes } = allCohortIds.length
-    ? await svc
-        .from("exam_quizzes")
-        .select("id, cohort_id, max_score")
-        .in("cohort_id", allCohortIds)
-    : { data: [] };
-
   const allQuizIds = (allQuizzes ?? []).map((q) => q.id);
+  const allTaskIds = (allTasks  ?? []).map((t) => t.id);
 
-  const { data: allExamScores } = allQuizIds.length && labelledTraineeIds.length
-    ? await svc
-        .from("exam_scores")
-        .select("trainee_id, quiz_id, score, attempt_no")
-        .in("quiz_id", allQuizIds)
-        .in("trainee_id", labelledTraineeIds)
-        .limit(100000)
-    : { data: [] };
-
-  // 5. Tasks per cohort (to know totals for completion rates)
-  const { data: allTasks } = allCohortIds.length
-    ? await svc
-        .from("cohort_week_tasks")
-        .select("id, cohort_id, task_type")
-        .in("cohort_id", allCohortIds)
-    : { data: [] };
-
-  const allTaskIds = (allTasks ?? []).map((t) => t.id);
-
-  // 6. Completions for current cohort trainees (for current-cohort feature computation)
-  //    and labelled historical trainees (for training)
+  // svc Round 5: exam scores + completions — both depend on Round 4 results, run in parallel
   const completionTargetIds = [...new Set([...traineeIds, ...labelledTraineeIds])];
-  const { data: allCompletions } = completionTargetIds.length && allTaskIds.length
-    ? await svc
-        .from("completions")
-        .select("trainee_id, task_id")
-        .in("trainee_id", completionTargetIds)
-        .in("task_id", allTaskIds)
-        .limit(100000)
-    : { data: [] };
+  const [{ data: allExamScores }, { data: allCompletions }] = await Promise.all([
+    allQuizIds.length && labelledTraineeIds.length
+      ? svc
+          .from("exam_scores")
+          .select("trainee_id, quiz_id, score, attempt_no")
+          .in("quiz_id", allQuizIds)
+          .in("trainee_id", labelledTraineeIds)
+          .limit(100000)
+      : Promise.resolve({ data: [] as { trainee_id: string; quiz_id: string; score: number; attempt_no: number }[] }),
+    completionTargetIds.length && allTaskIds.length
+      ? svc
+          .from("completions")
+          .select("trainee_id, task_id")
+          .in("trainee_id", completionTargetIds)
+          .in("task_id", allTaskIds)
+          .limit(100000)
+      : Promise.resolve({ data: [] as { trainee_id: string; task_id: string }[] }),
+  ]);
 
   // ── Pre-compute lookup structures ────────────────────────────────────────────
 

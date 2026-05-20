@@ -14,35 +14,18 @@ export default async function SuperAdminDashboard() {
     { count: trainerCount },
     { count: traineeCount },
     { count: activeCohortCount },
+    { data: staff },
+    { data: pendingRequests },
+    { data: emailChangeRequests },
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "trainer").eq("is_active", true),
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "trainee").eq("is_active", true),
     supabase.from("cohorts").select("id", { count: "exact", head: true }).eq("status", "active"),
+    supabase.from("profiles").select("id, full_name, role").in("role", ["trainer", "quiz_creator", "admin"]).eq("is_active", true).order("full_name"),
+    supabase.from("access_requests").select("id, full_name, email, reason, institution, town, region, phone, requested_role, created_at").eq("status", "pending").order("created_at", { ascending: true }),
+    // disambiguate FK: table has two refs to profiles (user_id and reviewed_by)
+    supabase.from("email_change_requests").select("id, user_id, current_email, requested_email, reason, created_at, profiles!user_id(full_name)").eq("status", "pending").order("created_at", { ascending: true }),
   ]);
-
-  // Active staff list
-  const { data: staff } = await supabase
-    .from("profiles")
-    .select("id, full_name, role")
-    .in("role", ["trainer", "quiz_creator"])
-    .eq("is_active", true)
-    .order("full_name");
-
-  // Pending access requests (trainers + QC)
-  const { data: pendingRequests } = await supabase
-    .from("access_requests")
-    .select("id, full_name, email, reason, institution, town, region, phone, requested_role, created_at")
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
-
-  // Pending email-change requests
-  // Note: disambiguate FK with !user_id hint — the table has two refs to profiles
-  // (user_id and reviewed_by) and PostgREST errors on ambiguity without the hint.
-  const { data: emailChangeRequests } = await supabase
-    .from("email_change_requests")
-    .select("id, user_id, current_email, requested_email, reason, created_at, profiles!user_id(full_name)")
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
 
   return (
     <div className="p-4 md:p-8 space-y-8 max-w-4xl">

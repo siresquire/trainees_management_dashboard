@@ -12,25 +12,11 @@ export default async function AttendancePage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: cohort } = await supabase
-    .from("cohorts")
-    .select("level, attendance_present_pct, attendance_partial_pct")
-    .eq("id", id)
-    .single();
-
-  const { data: trainees } = await supabase
-    .from("trainees")
-    .select("id, serial_no, full_name, personal_email, amalitech_email")
-    .eq("cohort_id", id)
-    .is("deleted_at", null)
-    .eq("status", "active")
-    .order("serial_no", { ascending: true, nullsFirst: false });
-
-  const { data: sessions } = await supabase
-    .from("sessions")
-    .select("id, platform, topic, started_at, total_duration_mins, week_number, session_number, created_at")
-    .eq("cohort_id", id)
-    .order("started_at", { ascending: false });
+  const [{ data: cohort }, { data: trainees }, { data: sessions }] = await Promise.all([
+    supabase.from("cohorts").select("level, attendance_present_pct, attendance_partial_pct").eq("id", id).single(),
+    supabase.from("trainees").select("id, serial_no, full_name, personal_email, amalitech_email").eq("cohort_id", id).is("deleted_at", null).eq("status", "active").order("serial_no", { ascending: true, nullsFirst: false }),
+    supabase.from("sessions").select("id, platform, topic, started_at, total_duration_mins, week_number, session_number, created_at").eq("cohort_id", id).order("started_at", { ascending: false }),
+  ]);
 
   const sessionIds = (sessions ?? []).map((s) => s.id);
 

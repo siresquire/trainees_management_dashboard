@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import AppShell, { type NavItem } from "@/components/AppShell";
 
 const NAV: NavItem[] = [
-  { href: "/superadmin/dashboard", label: "Dashboard", icon: "grid", exact: true },
-  { href: "/trainer/dashboard", label: "Trainer view", icon: "users" },
+  { href: "/superadmin/dashboard", label: "Dashboard",   icon: "grid",  exact: true },
+  { href: "/trainer/dashboard",    label: "Trainer view", icon: "users"              },
+  { href: "/admin/dashboard",      label: "Admin view",   icon: "shield"             },
 ];
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {

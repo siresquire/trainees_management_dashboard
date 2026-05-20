@@ -59,44 +59,30 @@ export default async function TrainerDashboard() {
     }
   }
 
-  // Fetch owner trainer_ids per cohort, then look up profiles
+  // Parallel: owner names (embedded join) + active trainee counts
   const cohortIds = cohorts.map((c) => c.id);
-  const { data: ownerAccess } = cohortIds.length
-    ? await supabase
-        .from("cohort_access")
-        .select("cohort_id, trainer_id")
-        .in("cohort_id", cohortIds)
-        .eq("role", "owner")
-    : { data: [] };
-
-  const ownerUserIds = [...new Set((ownerAccess ?? []).map((r) => r.trainer_id))];
-  const { data: ownerProfiles } = ownerUserIds.length
-    ? await supabase
-        .from("profiles")
-        .select("id, full_name, role")
-        .in("id", ownerUserIds)
-    : { data: [] };
-
-  const profileMap = new Map((ownerProfiles ?? []).map((p) => [p.id, p]));
+  const [{ data: ownerAccess }, { data: traineeCounts }] = await Promise.all([
+    cohortIds.length
+      ? supabase
+          .from("cohort_access")
+          .select("cohort_id, trainer_id, profiles(full_name, role)")
+          .in("cohort_id", cohortIds)
+          .eq("role", "owner")
+      : Promise.resolve({ data: [] as { cohort_id: string; trainer_id: string; profiles: { full_name: string; role: string } | null }[] }),
+    cohortIds.length
+      ? supabase.from("trainees").select("cohort_id").in("cohort_id", cohortIds).eq("status", "active")
+      : Promise.resolve({ data: [] as { cohort_id: string }[] }),
+  ]);
 
   // Map cohort_id → first non-superadmin owner name
   const ownerMap: Record<string, string> = {};
   for (const row of ownerAccess ?? []) {
-    const prof = profileMap.get(row.trainer_id);
+    const prof = row.profiles as { full_name: string; role: string } | null;
     if (!prof) continue;
     if (!ownerMap[row.cohort_id] || prof.role !== "super_admin") {
       ownerMap[row.cohort_id] = prof.full_name;
     }
   }
-
-  // Count active trainees per cohort
-  const { data: traineeCounts } = cohortIds.length
-    ? await supabase
-        .from("trainees")
-        .select("cohort_id")
-        .in("cohort_id", cohortIds)
-        .eq("status", "active")
-    : { data: [] };
 
   const countMap: Record<string, number> = {};
   for (const t of traineeCounts ?? []) {
