@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+// Revalidate every 30 s so the cohort list stays reasonably fresh without
+// hitting Supabase on every request from 400-500 concurrent users.
+export const revalidate = 30;
+
 const LEVEL_BADGE: Record<string, string> = {
   practitioner: "bg-blue-100 text-blue-700",
   associate: "bg-purple-100 text-purple-700",

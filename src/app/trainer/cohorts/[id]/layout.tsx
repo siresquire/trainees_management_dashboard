@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import StatusMenu from "./StatusMenu";
@@ -6,6 +7,22 @@ import ReassignOwnerForm from "./ReassignOwnerForm";
 import CodeNameForm from "./CodeNameForm";
 import ExamTypeForm from "./ExamTypeForm";
 import CohortTabBar from "./CohortTabBar";
+
+// Cache cohort row for 60s — same row served to all users hitting the same cohort.
+// Invalidated by revalidateTag("cohorts") whenever cohort data changes.
+const getCohortCached = unstable_cache(
+  async (id: string) => {
+    const svc = createServiceClient();
+    const { data } = await svc
+      .from("cohorts")
+      .select("id, name, code_name, level, platform, start_date, training_weeks, exam_prep_weeks, status, exam_type")
+      .eq("id", id)
+      .single();
+    return data ?? null;
+  },
+  ["cohort-row"],
+  { revalidate: 60, tags: ["cohorts"] }
+);
 
 const LEVEL_BADGE: Record<string, string> = {
   practitioner: "bg-blue-100 text-blue-700",
@@ -61,11 +78,7 @@ export default async function CohortLayout({
     if (!access) notFound();
   }
 
-  const { data: cohort } = await supabase
-    .from("cohorts")
-    .select("id, name, code_name, level, platform, start_date, training_weeks, exam_prep_weeks, status, exam_type")
-    .eq("id", id)
-    .single();
+  const cohort = await getCohortCached(id);
   if (!cohort) notFound();
 
   // Is current user an owner of this cohort?
