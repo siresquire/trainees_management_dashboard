@@ -35,7 +35,7 @@ export default async function AdminDashboardPage() {
     return (
       <AdminDashboardClient
         rows={[]} poolCountPractitioner={0} poolCountAssociate={0}
-        allSessions={[]} allTasks={[]} allQuizzes={[]} allVouchers={[]}
+        allSessions={[]} allTasks={[]} allQuizzes={[]} allVouchers={[]} revokedVouchers={[]}
         thresholds={thresholds}
       />
     );
