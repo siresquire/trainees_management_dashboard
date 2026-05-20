@@ -188,18 +188,22 @@ function CohortCard({
         </p>
       </div>
 
-      <div className="flex items-center justify-between mt-auto">
+      <div className="flex flex-col gap-2 mt-auto">
+        {owner && (
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            <span className="text-slate-400">Trainer:</span>
+            <span className="font-medium text-slate-700 truncate" title={owner}>{owner}</span>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 text-xs text-slate-600">
           <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
           {traineeCount} active trainee{traineeCount !== 1 ? "s" : ""}
         </div>
-        {owner && (
-          <span className="text-xs text-slate-400 truncate max-w-[120px]" title={owner}>
-            {owner}
-          </span>
-        )}
       </div>
     </Link>
   );
