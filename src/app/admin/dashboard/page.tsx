@@ -58,8 +58,8 @@ export default async function AdminDashboardPage() {
   // max-rows cap (which silently truncates direct SELECT queries at ~1000 rows).
   const [
     { data: profiles },
-    { data: completionRows },
-    { data: attendanceRows },
+    { data: completionRows, error: completionErr },
+    { data: attendanceRows, error: attendanceErr },
     { data: vouchers },
     { data: examQuizzes },
     { data: examScores },
@@ -69,10 +69,10 @@ export default async function AdminDashboardPage() {
       : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
     cohortIds.length
       ? svc.rpc("get_admin_completion_summary", { p_cohort_ids: cohortIds })
-      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number; lab_count: number; kc_count: number }[] }),
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number; lab_count: number; kc_count: number }[], error: null }),
     cohortIds.length
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
-      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[] }),
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[], error: null }),
     traineeIds.length
       ? svc.from("vouchers").select("trainee_id, voucher_code, attempt_no").in("trainee_id", traineeIds).order("attempt_no", { ascending: false })
       : Promise.resolve({ data: [] as { trainee_id: string; voucher_code: string | null; attempt_no: number }[] }),
@@ -83,6 +83,9 @@ export default async function AdminDashboardPage() {
       ? svc.from("exam_scores").select("trainee_id, quiz_id, score").in("trainee_id", traineeIds).limit(500000)
       : Promise.resolve({ data: [] as { trainee_id: string; quiz_id: string; score: number }[] }),
   ]);
+
+  if (completionErr) console.error("[AdminDashboard] get_admin_completion_summary failed — run supabase db push:", completionErr.message);
+  if (attendanceErr) console.error("[AdminDashboard] get_admin_attendance_summary failed — run supabase db push:", attendanceErr.message);
 
   // ── Aggregate ──────────────────────────────────────────────────────────────
   const profileNameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));

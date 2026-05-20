@@ -324,13 +324,17 @@ export async function setStaffTempPassword(
     .from("profiles").select("role").eq("id", user.id).single();
   if (myProfile?.role !== "super_admin") return { error: "Super Admin only." };
 
-  const { data: target } = await supabase
+  const { data: target } = await svc
     .from("profiles").select("role").eq("id", targetId)
-    .in("role", ["trainer", "quiz_creator"]).single();
+    .in("role", ["trainer", "quiz_creator", "admin"]).single();
   if (!target) return { error: "Staff member not found." };
 
   const tempPassword = generateTempPassword();
-  const { error } = await svc.auth.admin.updateUserById(targetId, { password: tempPassword });
+  // email_confirm: true ensures sign-in works even if the invite link was never clicked
+  const { error } = await svc.auth.admin.updateUserById(targetId, {
+    password: tempPassword,
+    email_confirm: true,
+  });
   if (error) return { error: error.message };
 
   return { tempPassword };

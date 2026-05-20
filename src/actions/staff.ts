@@ -80,6 +80,7 @@ export async function inviteStaff(
     const tempPassword = makeTempPassword();
     const { error: pwdErr } = await svc.auth.admin.updateUserById(existingAuthUser.id, {
       password: tempPassword,
+      email_confirm: true,
     });
     if (pwdErr) return { error: `Failed to set temp password: ${pwdErr.message}` };
 
