@@ -59,29 +59,33 @@ export default async function TrainerDashboard() {
     }
   }
 
-  // Parallel: owner names (embedded join) + active trainee counts
+  // Parallel: cohort owners + active trainee counts
   const cohortIds = cohorts.map((c) => c.id);
   const [{ data: ownerAccess }, { data: traineeCounts }] = await Promise.all([
     cohortIds.length
       ? supabase
           .from("cohort_access")
-          .select("cohort_id, trainer_id, profiles(full_name, role)")
+          .select("cohort_id, trainer_id")
           .in("cohort_id", cohortIds)
           .eq("role", "owner")
-      : Promise.resolve({ data: [] as { cohort_id: string; trainer_id: string; profiles: { full_name: string; role: string } | null }[] }),
+      : Promise.resolve({ data: [] as { cohort_id: string; trainer_id: string }[] }),
     cohortIds.length
       ? supabase.from("trainees").select("cohort_id").in("cohort_id", cohortIds).eq("status", "active")
       : Promise.resolve({ data: [] as { cohort_id: string }[] }),
   ]);
 
-  // Map cohort_id → first non-superadmin owner name
+  // Fetch profile names for all owner ids
+  const ownerIds = [...new Set((ownerAccess ?? []).map((a) => a.trainer_id))];
+  const { data: ownerProfiles } = ownerIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", ownerIds)
+    : { data: [] as { id: string; full_name: string }[] };
+  const profileNameById = new Map((ownerProfiles ?? []).map((p) => [p.id, p.full_name]));
+
+  // Map cohort_id → owner's full name
   const ownerMap: Record<string, string> = {};
   for (const row of ownerAccess ?? []) {
-    const prof = row.profiles as { full_name: string; role: string } | null;
-    if (!prof) continue;
-    if (!ownerMap[row.cohort_id] || prof.role !== "super_admin") {
-      ownerMap[row.cohort_id] = prof.full_name;
-    }
+    const name = profileNameById.get(row.trainer_id);
+    if (name) ownerMap[row.cohort_id] = name;
   }
 
   const countMap: Record<string, number> = {};
