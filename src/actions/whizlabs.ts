@@ -74,6 +74,39 @@ async function parseFile(file: File): Promise<WhizlabsRow[]> {
   return parseWhizlabsFile(rows);
 }
 
+// ── Lab title matching: handles "Challenge" variants ─────────────────────
+// Whizlabs exports challenge labs under names like:
+//   "Challenge - <Base Lab Name>"
+//   "Challenge Lab – <Base Lab Name>"
+//   "<Base Lab Name> and Swapping URL Challenge"
+// We try exact match first, then strip these patterns to find the base task.
+
+function matchLabTitle(raw: string, taskMap: Map<string, string>): string | undefined {
+  const base = raw.toLowerCase().trim();
+
+  // 1. Exact match
+  const exact = taskMap.get(base);
+  if (exact) return exact;
+
+  // 2. Strip leading "Challenge - " / "Challenge Lab – " / "Challenge Lab - " prefix
+  //    Handles en-dash (–), em-dash (—), and regular hyphen (-)
+  const noPrefix = base.replace(/^challenge\s*(?:lab\s*)?[-–—]\s*/i, "").trim();
+  if (noPrefix !== base) {
+    const hit = taskMap.get(noPrefix);
+    if (hit) return hit;
+  }
+
+  // 3. Strip trailing "... and X Y Challenge" or " Challenge"
+  //    e.g. "Blue/Green Deployments with Elastic Beanstalk and Swapping URL Challenge"
+  const noSuffix = base.replace(/\s+(?:and\s+\w+(?:\s+\w+)*\s+)?challenge\s*$/i, "").trim();
+  if (noSuffix !== base) {
+    const hit = taskMap.get(noSuffix);
+    if (hit) return hit;
+  }
+
+  return undefined;
+}
+
 // ── Upload action ─────────────────────────────────────────────────────────
 
 export async function uploadWhizlabs(
@@ -174,6 +207,7 @@ export async function uploadWhizlabs(
     source: string;
   }[] = [];
   let skipped = 0;
+  let challengeMatched = 0;
   const unmatchedEmails = new Set<string>();
   const unmatchedLabs = new Set<string>();
 
@@ -185,12 +219,16 @@ export async function uploadWhizlabs(
       continue;
     }
 
-    const taskId = taskMap.get(entry.labTitle.toLowerCase().trim());
+    const taskId = matchLabTitle(entry.labTitle, taskMap);
     if (!taskId) {
       unmatchedLabs.add(entry.labTitle);
       skipped++;
       continue;
     }
+
+    // Count when a challenge variant matched via prefix/suffix stripping
+    const normalised = entry.labTitle.toLowerCase().trim();
+    if (!taskMap.has(normalised)) challengeMatched++;
 
     const key = `${traineeId}:${taskId}`;
     if (seen.has(key)) continue; // duplicate row in CSV
@@ -235,6 +273,11 @@ export async function uploadWhizlabs(
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   revalidatePath(`/trainer/cohorts/${cohortId}/trainees`);
 
+  if (challengeMatched > 0) {
+    warnings.push(
+      `${challengeMatched} "Challenge" lab completion${challengeMatched !== 1 ? "s" : ""} matched to base tasks`
+    );
+  }
   if (unmatchedEmails.size > 0) {
     warnings.push(
       `${unmatchedEmails.size} email(s) not matched — check Amalitech emails on the roster`
