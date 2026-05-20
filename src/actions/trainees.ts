@@ -572,7 +572,7 @@ export async function impersonateTrainee(
   const { data, error } = await (svc.auth.admin as any).generateLink({
     type: "magiclink",
     email: trainee.personal_email,
-    options: { redirectTo: `${appUrl}/trainee/dashboard` },
+    options: { redirectTo: `${appUrl}/auth/magic` },
   });
 
   if (error) return { error: error.message };

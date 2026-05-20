@@ -13,6 +13,29 @@ const inputCls =
 export default function LoginForm({ cohorts }: { cohorts: Cohort[] }) {
   const [tab, setTab] = useState<"trainee" | "staff">("trainee");
 
+  // Handle implicit-flow magic links that land here (e.g. when Supabase Site URL
+  // is /login and the redirectTo isn't in the allowed list).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash.includes("access_token")) return;
+
+    const params = new URLSearchParams(hash.slice(1));
+    const access_token  = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    if (!access_token || !refresh_token) return;
+
+    window.history.replaceState(null, "", window.location.pathname);
+
+    fetch("/api/auth/magic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token, refresh_token }),
+    }).then((res) => {
+      if (res.ok) window.location.href = "/trainee/dashboard";
+    });
+  }, []);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-10">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-10 w-full max-w-md">

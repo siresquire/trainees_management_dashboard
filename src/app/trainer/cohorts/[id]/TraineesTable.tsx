@@ -117,6 +117,7 @@ export default function TraineesTable({
   const [showPassResults,   setShowPassResults]   = useState(false);
   const [showPassIds,       setShowPassIds]       = useState<Set<string>>(new Set());
   const [visitError,        setVisitError]        = useState<string | null>(null);
+  const [copiedId,          setCopiedId]          = useState<string | null>(null);
 
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
 
@@ -244,6 +245,13 @@ export default function TraineesTable({
     setShowPassResults(true);
     setTempPassMode(false);
     setSelectedIds(new Set());
+  }
+
+  function copyWithFeedback(text: string, id: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 2000);
+    });
   }
 
   async function handleVisitAccount(trainee: Trainee) {
@@ -561,13 +569,19 @@ export default function TraineesTable({
                   </div>
                   {!r.error && r.password && (
                     <button
-                      onClick={() => navigator.clipboard.writeText(r.password!)}
-                      className="text-slate-300 hover:text-orange-500 transition-colors shrink-0"
+                      onClick={() => copyWithFeedback(r.password!, r.id)}
+                      className="shrink-0 transition-colors"
                       title="Copy password"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
+                      {copiedId === r.id ? (
+                        <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                          Copied!
+                        </span>
+                      ) : (
+                        <svg className="w-4 h-4 text-slate-300 hover:text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      )}
                     </button>
                   )}
                 </div>
@@ -577,11 +591,15 @@ export default function TraineesTable({
               <button
                 onClick={() => {
                   const text = passResults.filter((r) => r.password).map((r) => `${r.name}: ${r.password}`).join("\n");
-                  navigator.clipboard.writeText(text);
+                  copyWithFeedback(text, "__all__");
                 }}
-                className="text-xs font-medium text-slate-600 hover:text-orange-600 transition-colors"
+                className="text-xs font-medium transition-colors"
               >
-                Copy all to clipboard
+                {copiedId === "__all__" ? (
+                  <span className="text-green-600 font-semibold">All copied!</span>
+                ) : (
+                  <span className="text-slate-600 hover:text-orange-600">Copy all to clipboard</span>
+                )}
               </button>
             </div>
           </div>
