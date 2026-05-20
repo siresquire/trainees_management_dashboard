@@ -112,7 +112,7 @@ export default async function CohortLayout({
 
   return (
     <div className="flex flex-col min-h-full">
-      <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-0 md:px-8 md:pt-6">
+      <div className="sticky top-14 lg:top-0 z-20 bg-white border-b border-slate-200 px-4 pt-4 pb-0 md:px-8 md:pt-6">
         <Link
           href={isSuperAdmin ? "/trainer/dashboard" : "/trainer/dashboard"}
           className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 mb-3 w-fit"

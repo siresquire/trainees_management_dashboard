@@ -329,6 +329,24 @@ export default function ExamsClient({
     traineeFeatures.map((f) => [f.traineeId, { labRatePct: f.labRatePct, kcRatePct: f.kcRatePct }])
   );
 
+  // Auto-readiness: trainees with Likely / Very Likely predictions get readiness shown automatically
+  const readinessAutoSet = new Set<string>();
+  for (const t of trainees) {
+    const pcts: number[] = [];
+    for (const q of quizzes) {
+      const best = bestScoreMap.get(`${t.id}:${q.id}`);
+      if (best !== undefined) pcts.push((best / q.max_score) * 100);
+    }
+    if (!pcts.length) continue;
+    const overallAvg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+    const recentSlice = pcts.slice(-3);
+    const recentAvg   = recentSlice.reduce((a, b) => a + b, 0) / recentSlice.length;
+    const blendedAvg  = pcts.length >= 2 ? 0.35 * overallAvg + 0.65 * recentAvg : overallAvg;
+    const feat = featuresMap.get(t.id);
+    const pred = regressionPrediction(modelBundle, blendedAvg, feat?.labRatePct ?? null, feat?.kcRatePct ?? null, thresholdPct);
+    if (pred.label === "Very likely" || pred.label === "Likely") readinessAutoSet.add(t.id);
+  }
+
   // ── Quiz Scores tab state ────────────────────────────────────────────────────
   const [showManageQuizzes, setShowManageQuizzes] = useState(false);
   const [showCreateQuiz,    setShowCreateQuiz]    = useState(false);
@@ -486,10 +504,6 @@ export default function ExamsClient({
   const [voucherCodeInput, setVoucherCodeInput] = useState("");
   const [officialError,    setOfficialError]    = useState("");
 
-  // Voucher pool upload state
-  const [showVoucherUpload,  setShowVoucherUpload]  = useState(false);
-  const [voucherUploadError, setVoucherUploadError] = useState("");
-  const [voucherUploadMsg,   setVoucherUploadMsg]   = useState("");
 
   function handleOpenIssue(traineeId: string) {
     if (issuingFor === traineeId) {
@@ -524,23 +538,6 @@ export default function ExamsClient({
     });
   }
 
-  function handleUploadVouchers(file: File) {
-    setVoucherUploadError("");
-    setVoucherUploadMsg("");
-    const fd = new FormData();
-    fd.append("voucher_file", file);
-    startTransition(async () => {
-      const res = await uploadVoucherPool(cohortId, fd);
-      if (res.error) { setVoucherUploadError(res.error); toast(res.error, "error"); return; }
-      const msg = `Uploaded ${res.imported} code${(res.imported ?? 0) !== 1 ? "s" : ""}` +
-        ` · ${res.matched} matched to trainees` +
-        (res.unmatched ? ` · ${res.unmatched} unmatched` : "");
-      setVoucherUploadMsg(msg);
-      toast(msg);
-      setShowVoucherUpload(false);
-      router.refresh();
-    });
-  }
 
   function handleRevokeVoucher(voucherId: string) {
     if (!confirm("Revoke this voucher?")) return;
@@ -1085,67 +1082,10 @@ export default function ExamsClient({
             </div>
           )}
 
-          {/* Voucher pool upload card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Voucher Code Pool</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Upload codes in bulk — they&apos;ll be pre-filled when you issue to each trainee.
-                  {pooledVouchers.length > 0 && (
-                    <span className="ml-1.5 text-emerald-600 font-medium">
-                      {pooledVouchers.length} unissued code{pooledVouchers.length !== 1 ? "s" : ""} loaded.
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => window.location.href = "/api/templates/vouchers"}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-xs font-medium rounded-lg text-slate-700 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                  Download Template
-                </button>
-                <button
-                  onClick={() => { setShowVoucherUpload((v) => !v); setVoucherUploadError(""); setVoucherUploadMsg(""); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                  Upload Voucher Codes
-                </button>
-              </div>
-            </div>
-
-            {showVoucherUpload && (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <p className="text-xs text-slate-500 mb-2">
-                  Upload the filled template (.xlsx or .csv). Columns: <code className="bg-slate-100 px-1 rounded text-[11px]">name</code>, <code className="bg-slate-100 px-1 rounded text-[11px]">email</code>, <code className="bg-slate-100 px-1 rounded text-[11px]">voucher_code</code>.
-                  <span className="ml-1 text-amber-600"> Re-uploading replaces all unissued codes for this cohort.</span>
-                </p>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  disabled={isPending}
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadVouchers(f); }}
-                  className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-                />
-                {voucherUploadError && <p className="text-xs text-red-600 mt-2">{voucherUploadError}</p>}
-                {voucherUploadMsg   && <p className="text-xs text-emerald-600 mt-2">{voucherUploadMsg}</p>}
-                {isPending && <p className="text-xs text-slate-400 mt-2">Uploading…</p>}
-              </div>
-            )}
-          </div>
-
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">
               <p className="text-xs text-slate-500">
-                Issue exam vouchers and record official AWS exam scores per trainee.
-                The <span className="font-medium">eye icon</span> controls whether a trainee can see their readiness status.
+                Vouchers are issued by Admin. The <span className="font-medium">eye icon</span> shows automatically when analytics predict <span className="font-medium">Likely</span> or <span className="font-medium">Very Likely</span> — you can still toggle it manually.
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -1284,35 +1224,43 @@ export default function ExamsClient({
                             </div>
                           </td>
 
-                          {/* Readiness toggle */}
+                          {/* Readiness toggle — auto-on when analytics predict Likely/Very Likely */}
                           <td className="px-4 py-3 text-center align-top pt-3.5">
-                            <button
-                              onClick={() => handleToggleReadiness(t.id, t.show_readiness)}
-                              disabled={isPending}
-                              title={t.show_readiness ? "Hide readiness from trainee" : "Show readiness to trainee"}
-                              className={`transition-colors disabled:opacity-40 ${
-                                t.show_readiness
-                                  ? "text-emerald-500 hover:text-slate-400"
-                                  : "text-slate-300 hover:text-emerald-500"
-                              }`}
-                            >
-                              {t.show_readiness ? (
-                                /* eye-open */
-                                <svg className="w-5 h-5 mx-auto" viewBox="0 0 20 20" fill="currentColor">
-                                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                  <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                </svg>
-                              ) : (
-                                /* eye-off */
-                                <svg className="w-5 h-5 mx-auto" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
-                                  <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.064 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
-                                </svg>
-                              )}
-                            </button>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {t.show_readiness ? "Visible" : "Hidden"}
-                            </p>
+                            {(() => {
+                              const effectiveReadiness = t.show_readiness || readinessAutoSet.has(t.id);
+                              return (
+                                <>
+                                  <button
+                                    onClick={() => handleToggleReadiness(t.id, t.show_readiness)}
+                                    disabled={isPending}
+                                    title={effectiveReadiness ? "Hide readiness from trainee" : "Show readiness to trainee"}
+                                    className={`transition-colors disabled:opacity-40 ${
+                                      effectiveReadiness
+                                        ? "text-emerald-500 hover:text-slate-400"
+                                        : "text-slate-300 hover:text-emerald-500"
+                                    }`}
+                                  >
+                                    {effectiveReadiness ? (
+                                      <svg className="w-5 h-5 mx-auto" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                                      </svg>
+                                    ) : (
+                                      <svg className="w-5 h-5 mx-auto" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                                        <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.064 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">
+                                    {effectiveReadiness ? "Visible" : "Hidden"}
+                                    {!t.show_readiness && readinessAutoSet.has(t.id) && (
+                                      <span className="block text-[9px] text-emerald-500">auto</span>
+                                    )}
+                                  </p>
+                                </>
+                              );
+                            })()}
                           </td>
 
                           <td className="px-4 py-3 text-right align-top pt-3">

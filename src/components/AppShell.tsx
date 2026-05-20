@@ -53,7 +53,7 @@ export default function AppShell({ children, navItems, user, theme = "light" }: 
   const currentPage = navItems.find(isActive)?.label ?? "Dashboard";
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen bg-slate-50">
       {/* Mobile backdrop */}
       {open && (
         <div
@@ -63,12 +63,11 @@ export default function AppShell({ children, navItems, user, theme = "light" }: 
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — always fixed */}
       <aside
         className={[
           "fixed inset-y-0 left-0 z-50 w-64 flex flex-col transition-transform duration-200 ease-in-out",
-          "lg:relative lg:translate-x-0 lg:flex lg:flex-shrink-0",
-          open ? "translate-x-0" : "-translate-x-full",
+          open ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           sidebarBg,
         ].join(" ")}
       >
@@ -125,16 +124,19 @@ export default function AppShell({ children, navItems, user, theme = "light" }: 
           <form action={signOut}>
             <button
               type="submit"
-              className={`w-full text-left text-xs px-2 py-2 rounded-lg transition-colors ${textMuted} ${hoverBg}`}
+              className={`w-full flex items-center gap-2 text-xs px-2 py-2 rounded-lg transition-colors ${textMuted} ${hoverBg}`}
             >
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
               Sign out
             </button>
           </form>
         </div>
       </aside>
 
-      {/* Content area */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:min-h-0">
+      {/* Content area — offset by sidebar on desktop */}
+      <div className="lg:ml-64 flex flex-col min-h-screen">
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 h-14 bg-white border-b border-slate-200 flex items-center gap-3 px-4 flex-shrink-0">
           <button

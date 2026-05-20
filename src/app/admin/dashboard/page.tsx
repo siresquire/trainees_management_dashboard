@@ -89,8 +89,8 @@ export default async function AdminDashboardPage() {
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
       : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[], error: null }),
     traineeIds.length
-      ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, deadline, revoked_at").in("trainee_id", traineeIds).is("revoked_at", null).order("attempt_no", { ascending: false })
-      : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; deadline: string | null; revoked_at: string | null }[] }),
+      ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no").in("trainee_id", traineeIds).order("attempt_no", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number }[] }),
     cohortIds.length
       ? svc.from("exam_quizzes").select("id, cohort_id, quiz_name, week_number, max_score").in("cohort_id", cohortIds).order("week_number", { ascending: true })
       : Promise.resolve({ data: [] as { id: string; cohort_id: string; quiz_name: string; week_number: number; max_score: number }[] }),
@@ -146,11 +146,11 @@ export default async function AdminDashboardPage() {
     weeklyByTrainee.set(tid, traineeMap);
   }
 
-  // Vouchers — latest non-revoked per trainee
+  // Vouchers — latest per trainee (deadline/revoked_at available after migration)
   const voucherByTrainee = new Map<string, { code: string | null; id: string; deadline: string | null }>();
   for (const v of vouchersRaw ?? []) {
     if (!voucherByTrainee.has(v.trainee_id)) {
-      voucherByTrainee.set(v.trainee_id, { code: v.voucher_code ?? null, id: v.id, deadline: (v.deadline as string | null) ?? null });
+      voucherByTrainee.set(v.trainee_id, { code: v.voucher_code ?? null, id: v.id, deadline: null });
     }
   }
 
@@ -248,7 +248,7 @@ export default async function AdminDashboardPage() {
   }));
   const allVouchers: VoucherRow[] = (vouchersRaw ?? []).map((v) => ({
     id: v.id, traineeId: v.trainee_id, voucherCode: v.voucher_code ?? null,
-    deadline: (v.deadline as string | null) ?? null, revokedAt: (v.revoked_at as string | null) ?? null,
+    deadline: null, revokedAt: null,
   }));
 
   return (
