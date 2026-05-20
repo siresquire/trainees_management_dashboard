@@ -114,7 +114,7 @@ export async function requestEmailChange(
 const SAUpdateStaffSchema = z.object({
   target_id: z.string().uuid(),
   full_name: z.string().min(2).max(120),
-  role:      z.enum(["trainer", "quiz_creator"]),
+  role:      z.enum(["trainer", "quiz_creator", "admin"]),
   is_active: z.coerce.boolean(),
 });
 

@@ -11,7 +11,7 @@ export default function SAStaffEditForm({
 }: {
   targetId: string;
   fullName: string;
-  role: "trainer" | "quiz_creator";
+  role: "trainer" | "quiz_creator" | "admin";
   isActive: boolean;
 }) {
   const [state, action, isPending] = useActionState(updateStaffProfileBySA, null);
@@ -44,6 +44,7 @@ export default function SAStaffEditForm({
         >
           <option value="trainer">Trainer</option>
           <option value="quiz_creator">Quiz Creator</option>
+          <option value="admin">Admin</option>
         </select>
       </div>
 

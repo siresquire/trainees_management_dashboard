@@ -32,7 +32,7 @@ export default async function SAStaffEditPage({
     .from("profiles")
     .select("id, full_name, role, is_active")
     .eq("id", staffId)
-    .in("role", ["trainer", "quiz_creator"])
+    .in("role", ["trainer", "quiz_creator", "admin"])
     .single();
   if (!profile) notFound();
 
@@ -68,7 +68,7 @@ export default async function SAStaffEditPage({
         <SAStaffEditForm
           targetId={profile.id}
           fullName={profile.full_name}
-          role={profile.role as "trainer" | "quiz_creator"}
+          role={profile.role as "trainer" | "quiz_creator" | "admin"}
           isActive={profile.is_active}
         />
       </div>
