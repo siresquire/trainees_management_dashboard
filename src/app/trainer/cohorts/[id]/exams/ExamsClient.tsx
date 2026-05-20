@@ -69,6 +69,14 @@ type Voucher = {
   voucher_code: string | null;
 };
 
+export type ExamAppointment = {
+  traineeId:    string;
+  voucherId:    string | null;
+  examDate:     string;
+  examTime:     string;
+  examLocation: string;
+};
+
 type PooledVoucher = {
   id: string;
   trainee_id: string | null;
@@ -232,6 +240,7 @@ export default function ExamsClient({
   outcomes,
   modelBundle,
   traineeFeatures,
+  appointments,
 }: {
   cohortId:        string;
   cohortLevel:     string;
@@ -245,6 +254,7 @@ export default function ExamsClient({
   outcomes:        Outcome[];
   modelBundle:     ModelBundle;
   traineeFeatures: TraineeFeatureStat[];
+  appointments:    ExamAppointment[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -306,6 +316,12 @@ export default function ExamsClient({
     if (p.trainee_id && !pooledMap.has(p.trainee_id)) {
       pooledMap.set(p.trainee_id, { id: p.id, voucher_code: p.voucher_code });
     }
+  }
+
+  // Exam appointments keyed by traineeId (take first/only per trainee)
+  const appointmentMap = new Map<string, ExamAppointment>();
+  for (const a of appointments) {
+    if (!appointmentMap.has(a.traineeId)) appointmentMap.set(a.traineeId, a);
   }
 
   // Trainee completion features (for regression prediction)
@@ -1191,6 +1207,18 @@ export default function ExamsClient({
                                       </code>
                                     </div>
                                   )}
+                                  {(() => {
+                                    const appt = appointmentMap.get(t.id);
+                                    if (!appt) return null;
+                                    return (
+                                      <div className="mt-1 text-[10px] text-slate-500 bg-blue-50 border border-blue-100 rounded px-2 py-1 space-y-0.5">
+                                        <div className="font-medium text-blue-700 mb-0.5">Exam appointment</div>
+                                        <div><span className="text-slate-400">Date: </span>{appt.examDate}</div>
+                                        <div><span className="text-slate-400">Time: </span>{appt.examTime}</div>
+                                        <div><span className="text-slate-400">Location: </span>{appt.examLocation}</div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               ))}
                               {!tvouchers.length && (

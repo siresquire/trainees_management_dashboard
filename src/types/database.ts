@@ -34,6 +34,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_settings: {
+        Row: {
+          id:                       string
+          level:                    string
+          data_bundle_threshold_pct: number
+          stipend_threshold_pct:     number
+          updated_at:               string
+          updated_by:               string | null
+        }
+        Insert: {
+          id?:                       string
+          level:                     string
+          data_bundle_threshold_pct?: number
+          stipend_threshold_pct?:    number
+          updated_at?:               string
+          updated_by?:               string | null
+        }
+        Update: {
+          id?:                       string
+          level?:                    string
+          data_bundle_threshold_pct?: number
+          stipend_threshold_pct?:    number
+          updated_at?:               string
+          updated_by?:               string | null
+        }
+        Relationships: []
+      }
       admin_voucher_pool: {
         Row: {
           id:           string
@@ -44,6 +71,9 @@ export type Database = {
           issued_by:    string | null
           issued_at:    string | null
           created_at:   string
+          deadline:     string | null
+          revoked_at:   string | null
+          revoked_by:   string | null
         }
         Insert: {
           id?:          string
@@ -54,6 +84,9 @@ export type Database = {
           issued_by?:   string | null
           issued_at?:   string | null
           created_at?:  string
+          deadline?:    string | null
+          revoked_at?:  string | null
+          revoked_by?:  string | null
         }
         Update: {
           id?:          string
@@ -64,8 +97,52 @@ export type Database = {
           issued_by?:   string | null
           issued_at?:   string | null
           created_at?:  string
+          deadline?:    string | null
+          revoked_at?:  string | null
+          revoked_by?:  string | null
         }
         Relationships: []
+      }
+      exam_appointments: {
+        Row: {
+          id:           string
+          trainee_id:   string
+          voucher_id:   string | null
+          cohort_id:    string | null
+          exam_date:    string
+          exam_time:    string
+          exam_location: string
+          submitted_at: string
+        }
+        Insert: {
+          id?:          string
+          trainee_id:   string
+          voucher_id?:  string | null
+          cohort_id?:   string | null
+          exam_date:    string
+          exam_time:    string
+          exam_location: string
+          submitted_at?: string
+        }
+        Update: {
+          id?:          string
+          trainee_id?:  string
+          voucher_id?:  string | null
+          cohort_id?:   string | null
+          exam_date?:   string
+          exam_time?:   string
+          exam_location?: string
+          submitted_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_appointments_trainee_id_fkey"
+            columns: ["trainee_id"]
+            isOneToOne: false
+            referencedRelation: "trainees"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       attendance_overrides: {
         Row: {
@@ -2104,6 +2181,9 @@ export type Database = {
           issued_date:  string
           trainee_id:   string
           voucher_code: string | null
+          deadline:     string | null
+          revoked_at:   string | null
+          revoked_by:   string | null
         }
         Insert: {
           attempt_no?:  number
@@ -2114,6 +2194,9 @@ export type Database = {
           issued_date:  string
           trainee_id:   string
           voucher_code?: string | null
+          deadline?:    string | null
+          revoked_at?:  string | null
+          revoked_by?:  string | null
         }
         Update: {
           attempt_no?:  number
@@ -2124,6 +2207,9 @@ export type Database = {
           issued_date?: string
           trainee_id?:  string
           voucher_code?: string | null
+          deadline?:    string | null
+          revoked_at?:  string | null
+          revoked_by?:  string | null
         }
         Relationships: [
           {

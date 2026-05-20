@@ -1,5 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import AppShell, { type NavItem } from "@/components/AppShell";
+
+const NAV: NavItem[] = [
+  { href: "/admin/overview",   label: "Overview",   icon: "chart", exact: true },
+  { href: "/admin/dashboard",  label: "Trainees",   icon: "grid",  exact: true },
+  { href: "/admin/profile",    label: "Profile",    icon: "settings", exact: true },
+];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -8,11 +15,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("full_name, role")
     .eq("id", user.id)
     .single();
 
   if (!["admin", "super_admin"].includes(profile?.role ?? "")) redirect("/login");
 
-  return <>{children}</>;
+  return (
+    <AppShell navItems={NAV} user={{ name: profile?.full_name ?? "Admin", role: profile?.role ?? "admin" }}>
+      {children}
+    </AppShell>
+  );
 }

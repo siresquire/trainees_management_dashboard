@@ -26,11 +26,12 @@ export default async function ExamsPage({
   const svc         = createServiceClient();
 
   // Round 2: scores + vouchers + pooled vouchers + outcomes + completion summary
-  //          + same-level cohort IDs — all independent of each other, all fire in parallel
+  //          + same-level cohort IDs + exam appointments — all independent, all fire in parallel
   const [
     [{ data: scores }, { data: vouchers }, { data: pooledVouchers }, { data: outcomes }],
     [{ data: completionSummary }, { data: currentCohortTasks }],
     { data: sameLevelCohorts },
+    { data: appointmentsRaw },
   ] = await Promise.all([
     Promise.all([
       quizIds.length
@@ -51,6 +52,9 @@ export default async function ExamsPage({
       supabase.from("cohort_week_tasks").select("id, task_type").eq("cohort_id", id),
     ]),
     svc.from("cohorts").select("id").eq("level", cohortLevel),
+    traineeIds.length
+      ? svc.from("exam_appointments").select("trainee_id, voucher_id, exam_date, exam_time, exam_location").in("trainee_id", traineeIds).order("submitted_at", { ascending: false })
+      : Promise.resolve({ data: [] as { trainee_id: string; voucher_id: string | null; exam_date: string; exam_time: string; exam_location: string }[] }),
   ]);
 
   const totalLabTasks = (currentCohortTasks ?? []).filter((t) => t.task_type === "lab").length;
@@ -263,6 +267,13 @@ export default async function ExamsPage({
       outcomes={outcomes ?? []}
       modelBundle={modelBundle}
       traineeFeatures={traineeFeatures}
+      appointments={(appointmentsRaw ?? []).map((a) => ({
+        traineeId:    a.trainee_id,
+        voucherId:    a.voucher_id ?? null,
+        examDate:     a.exam_date,
+        examTime:     a.exam_time,
+        examLocation: a.exam_location,
+      }))}
     />
   );
 }

@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import TraineeExamsClient from "./TraineeExamsClient";
 
@@ -7,7 +7,6 @@ export default async function TraineeExamsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Trainee record + cohort details
   const { data: trainee } = await supabase
     .from("trainees")
     .select("id, full_name, cohort_id, status, show_readiness, cohorts(name, level)")
@@ -27,54 +26,51 @@ export default async function TraineeExamsPage() {
 
   const cohort = trainee.cohorts as { name: string; level: string } | null;
 
-  // Quizzes for this cohort, ordered by creation date
-  const { data: quizzes } = await supabase
-    .from("exam_quizzes")
-    .select("id, quiz_name, focus_type, focus_label, week_number, quiz_date, max_score")
-    .eq("cohort_id", trainee.cohort_id)
-    .order("created_at", { ascending: true });
+  const [
+    { data: quizzes },
+    { data: myVouchers },
+    { data: myOutcomes },
+  ] = await Promise.all([
+    supabase.from("exam_quizzes")
+      .select("id, quiz_name, focus_type, focus_label, week_number, quiz_date, max_score")
+      .eq("cohort_id", trainee.cohort_id)
+      .order("created_at", { ascending: true }),
+    supabase.from("vouchers")
+      .select("id, exam_type, issued_date, attempt_no, voucher_code, deadline, revoked_at")
+      .eq("trainee_id", trainee.id)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: true }),
+    supabase.from("exam_outcomes")
+      .select("id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported")
+      .eq("trainee_id", trainee.id)
+      .order("attempt_no", { ascending: true }),
+  ]);
 
   const quizIds = (quizzes ?? []).map((q) => q.id);
 
-  // My scores
-  const { data: myScores } = quizIds.length
-    ? await supabase
-        .from("exam_scores")
-        .select("quiz_id, score, attempt_no, uploaded_at")
-        .eq("trainee_id", trainee.id)
-        .in("quiz_id", quizIds)
-    : { data: [] };
+  const [{ data: myScores }, { data: allScores }, { data: myAppointments }] = await Promise.all([
+    quizIds.length
+      ? supabase.from("exam_scores").select("quiz_id, score, attempt_no, uploaded_at").eq("trainee_id", trainee.id).in("quiz_id", quizIds)
+      : Promise.resolve({ data: [] as { quiz_id: string; score: number; attempt_no: number; uploaded_at: string }[] }),
+    quizIds.length
+      ? supabase.from("exam_scores").select("quiz_id, trainee_id, score").in("quiz_id", quizIds)
+      : Promise.resolve({ data: [] as { quiz_id: string; trainee_id: string; score: number }[] }),
+    // Load existing appointments for this trainee
+    createServiceClient()
+      .from("exam_appointments")
+      .select("id, voucher_id, exam_date, exam_time, exam_location, submitted_at")
+      .eq("trainee_id", trainee.id)
+      .order("submitted_at", { ascending: false }),
+  ]);
 
-  // All scores in these quizzes for ranking
-  const { data: allScores } = quizIds.length
-    ? await supabase
-        .from("exam_scores")
-        .select("quiz_id, trainee_id, score")
-        .in("quiz_id", quizIds)
-    : { data: [] };
-
-  // My vouchers
-  const { data: myVouchers } = await supabase
-    .from("vouchers")
-    .select("id, exam_type, issued_date, attempt_no, voucher_code")
-    .eq("trainee_id", trainee.id)
-    .order("created_at", { ascending: true });
-
-  // My official exam outcomes
-  const { data: myOutcomes } = await supabase
-    .from("exam_outcomes")
-    .select("id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported")
-    .eq("trainee_id", trainee.id)
-    .order("attempt_no", { ascending: true });
-
-  // ── Compute best score per quiz ───────────────────────────────────────────
+  // Best score per quiz
   const myBestMap = new Map<string, number>();
   for (const s of myScores ?? []) {
     const prev = myBestMap.get(s.quiz_id);
     if (prev === undefined || s.score > prev) myBestMap.set(s.quiz_id, s.score);
   }
 
-  // ── Compute ranking per quiz ──────────────────────────────────────────────
+  // Ranking per quiz
   const allBestPerQuiz = new Map<string, Map<string, number>>();
   for (const s of allScores ?? []) {
     let qmap = allBestPerQuiz.get(s.quiz_id);
@@ -82,7 +78,6 @@ export default async function TraineeExamsPage() {
     const prev = qmap.get(s.trainee_id);
     if (prev === undefined || s.score > prev) qmap.set(s.trainee_id, s.score);
   }
-
   const myRankMap = new Map<string, { rank: number; total: number }>();
   for (const [qId, qmap] of allBestPerQuiz) {
     const myBest = myBestMap.get(qId);
@@ -92,19 +87,23 @@ export default async function TraineeExamsPage() {
     myRankMap.set(qId, { rank, total: sorted.length });
   }
 
-  // ── Eligibility ───────────────────────────────────────────────────────────
+  // Eligibility
   const pcts: number[] = [];
   for (const q of quizzes ?? []) {
     const best = myBestMap.get(q.id);
     if (best !== undefined) pcts.push((best / (q.max_score ?? 100)) * 100);
   }
-  const avgPct = pcts.length
-    ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)
-    : null;
+  const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+
+  // Which vouchers already have an appointment submitted?
+  const appointedVoucherIds = new Set(
+    (myAppointments ?? []).map((a) => a.voucher_id).filter(Boolean) as string[]
+  );
 
   return (
     <TraineeExamsClient
       traineeId={trainee.id}
+      cohortId={trainee.cohort_id}
       cohortName={cohort?.name ?? null}
       cohortLevel={cohort?.level ?? "practitioner"}
       showReadiness={trainee.show_readiness ?? false}
@@ -122,11 +121,13 @@ export default async function TraineeExamsPage() {
       avgPct={avgPct}
       quizCount={pcts.length}
       vouchers={(myVouchers ?? []).map((v) => ({
-        id:           v.id,
-        exam_type:    v.exam_type as string,
-        issued_date:  v.issued_date as string,
-        attempt_no:   v.attempt_no as number,
-        voucher_code: (v.voucher_code as string | null) ?? null,
+        id:                 v.id,
+        exam_type:          v.exam_type as string,
+        issued_date:        v.issued_date as string,
+        attempt_no:         v.attempt_no as number,
+        voucher_code:       (v.voucher_code as string | null) ?? null,
+        deadline:           (v.deadline as string | null) ?? null,
+        appointment_submitted: appointedVoucherIds.has(v.id),
       }))}
       outcomes={(myOutcomes ?? []).map((o) => ({
         id:            o.id,

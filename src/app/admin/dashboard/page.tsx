@@ -4,6 +4,8 @@ import AdminDashboardClient, { type AdminTraineeRow } from "./AdminDashboardClie
 export type SessionInfo = { id: string; cohortId: string; weekNumber: number | null };
 export type TaskInfo    = { id: string; cohortId: string; taskType: string; weekNumber: number };
 export type QuizInfo    = { id: string; cohortId: string; quizName: string; weekNumber: number; maxScore: number };
+export type VoucherRow  = { id: string; traineeId: string; voucherCode: string | null; deadline: string | null; revokedAt: string | null };
+export type ThresholdSettings = { dataBundlePct: number; stipendPct: number };
 
 export default async function AdminDashboardPage() {
   const svc = createServiceClient();
@@ -17,11 +19,23 @@ export default async function AdminDashboardPage() {
 
   const cohortIds = (cohorts ?? []).map((c) => c.id);
 
+  // Also load thresholds in parallel
+  const { data: settingsRows } = await svc
+    .from("admin_settings")
+    .select("level, data_bundle_threshold_pct, stipend_threshold_pct");
+
+  const settingsMap = new Map((settingsRows ?? []).map((r) => [r.level as string, r]));
+  const thresholds: Record<string, ThresholdSettings> = {
+    practitioner: { dataBundlePct: Number(settingsMap.get("practitioner")?.data_bundle_threshold_pct ?? 0), stipendPct: Number(settingsMap.get("practitioner")?.stipend_threshold_pct ?? 0) },
+    associate:    { dataBundlePct: Number(settingsMap.get("associate")?.data_bundle_threshold_pct    ?? 0), stipendPct: Number(settingsMap.get("associate")?.stipend_threshold_pct    ?? 0) },
+  };
+
   if (!cohortIds.length) {
     return (
       <AdminDashboardClient
         rows={[]} poolCountPractitioner={0} poolCountAssociate={0}
-        allSessions={[]} allTasks={[]} allQuizzes={[]}
+        allSessions={[]} allTasks={[]} allQuizzes={[]} allVouchers={[]}
+        thresholds={thresholds}
       />
     );
   }
@@ -60,9 +74,10 @@ export default async function AdminDashboardPage() {
     { data: profiles },
     { data: completionRows, error: completionErr },
     { data: attendanceRows, error: attendanceErr },
-    { data: vouchers },
+    { data: vouchersRaw },
     { data: examQuizzes },
     { data: examScores },
+    { data: appointmentsRaw },
   ] = await Promise.all([
     ownerIds.length
       ? svc.from("profiles").select("id, full_name").in("id", ownerIds)
@@ -74,14 +89,17 @@ export default async function AdminDashboardPage() {
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
       : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[], error: null }),
     traineeIds.length
-      ? svc.from("vouchers").select("trainee_id, voucher_code, attempt_no").in("trainee_id", traineeIds).order("attempt_no", { ascending: false })
-      : Promise.resolve({ data: [] as { trainee_id: string; voucher_code: string | null; attempt_no: number }[] }),
+      ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, deadline, revoked_at").in("trainee_id", traineeIds).is("revoked_at", null).order("attempt_no", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; deadline: string | null; revoked_at: string | null }[] }),
     cohortIds.length
       ? svc.from("exam_quizzes").select("id, cohort_id, quiz_name, week_number, max_score").in("cohort_id", cohortIds).order("week_number", { ascending: true })
       : Promise.resolve({ data: [] as { id: string; cohort_id: string; quiz_name: string; week_number: number; max_score: number }[] }),
     traineeIds.length
       ? svc.from("exam_scores").select("trainee_id, quiz_id, score").in("trainee_id", traineeIds).limit(500000)
       : Promise.resolve({ data: [] as { trainee_id: string; quiz_id: string; score: number }[] }),
+    traineeIds.length
+      ? svc.from("exam_appointments").select("trainee_id, exam_date, exam_time, exam_location").in("trainee_id", traineeIds).order("submitted_at", { ascending: false })
+      : Promise.resolve({ data: [] as { trainee_id: string; exam_date: string; exam_time: string; exam_location: string }[] }),
   ]);
 
   if (completionErr) console.error("[AdminDashboard] get_admin_completion_summary failed — run supabase db push:", completionErr.message);
@@ -103,8 +121,7 @@ export default async function AdminDashboardPage() {
     sessionsByCohort.set(s.cohort_id, (sessionsByCohort.get(s.cohort_id) ?? 0) + 1);
   }
 
-  // Per-trainee weekly stats from RPCs (week_number -> labs/kcs/attendance done)
-  // Structure: Map<traineeId, Map<weekNumber|"null", { labs, kcs, sessions }>>
+  // Per-trainee weekly stats from RPCs
   type WeekBucket = { labs: number; kcs: number; sessions: number };
   const weeklyByTrainee = new Map<string, Map<string, WeekBucket>>();
 
@@ -129,14 +146,24 @@ export default async function AdminDashboardPage() {
     weeklyByTrainee.set(tid, traineeMap);
   }
 
-  // Vouchers
-  const voucherByTrainee = new Map<string, string | null>();
-  for (const v of vouchers ?? []) {
-    if (!voucherByTrainee.has(v.trainee_id)) voucherByTrainee.set(v.trainee_id, v.voucher_code ?? null);
+  // Vouchers — latest non-revoked per trainee
+  const voucherByTrainee = new Map<string, { code: string | null; id: string; deadline: string | null }>();
+  for (const v of vouchersRaw ?? []) {
+    if (!voucherByTrainee.has(v.trainee_id)) {
+      voucherByTrainee.set(v.trainee_id, { code: v.voucher_code ?? null, id: v.id, deadline: (v.deadline as string | null) ?? null });
+    }
+  }
+
+  // Appointments — latest per trainee
+  const appointmentByTrainee = new Map<string, { examDate: string; examTime: string; examLocation: string }>();
+  for (const a of appointmentsRaw ?? []) {
+    if (!appointmentByTrainee.has(a.trainee_id)) {
+      appointmentByTrainee.set(a.trainee_id, { examDate: a.exam_date, examTime: a.exam_time, examLocation: a.exam_location });
+    }
   }
 
   // Best quiz scores
-  const bestQuizScore = new Map<string, number>(); // `${traineeId}:${quizId}`
+  const bestQuizScore = new Map<string, number>();
   for (const s of examScores ?? []) {
     const key  = `${s.trainee_id}:${s.quiz_id}`;
     const prev = bestQuizScore.get(key);
@@ -158,8 +185,8 @@ export default async function AdminDashboardPage() {
     const ownerId       = ownerIdByCohort.get(t.cohort_id);
     const traineeWeeks  = weeklyByTrainee.get(t.id);
     const cohortQuizzes = quizzesByCohort.get(t.cohort_id) ?? [];
+    const vEntry        = voucherByTrainee.get(t.id);
 
-    // Build weeklyStats array and sum all-time totals
     const weeklyStats: AdminTraineeRow["weeklyStats"] = [];
     let labsDone = 0, kcsDone = 0, sessionsAttended = 0;
 
@@ -191,7 +218,10 @@ export default async function AdminDashboardPage() {
       cohortCode:       cohort?.code_name ?? cohort?.name ?? "—",
       cohortLevel:      cohort?.level ?? "practitioner",
       trainerName:      ownerId ? (profileNameById.get(ownerId) ?? "—") : "—",
-      issuedVoucher:    voucherByTrainee.get(t.id) ?? null,
+      issuedVoucher:    vEntry?.code ?? null,
+      issuedVoucherId:  vEntry?.id   ?? null,
+      voucherDeadline:  vEntry?.deadline ?? null,
+      examAppointment:  appointmentByTrainee.get(t.id) ?? null,
       weeklyStats,
       quizScores:       cohortQuizzes
         .map((q) => ({ quizId: q.id, score: bestQuizScore.get(`${t.id}:${q.id}`) ?? null }))
@@ -208,24 +238,17 @@ export default async function AdminDashboardPage() {
   });
 
   const allSessions: SessionInfo[] = (sessions ?? []).map((s) => ({
-    id: s.id,
-    cohortId: s.cohort_id,
-    weekNumber: s.week_number,
+    id: s.id, cohortId: s.cohort_id, weekNumber: s.week_number,
   }));
-
   const allTasks: TaskInfo[] = (tasks ?? []).map((t) => ({
-    id: t.id,
-    cohortId: t.cohort_id,
-    taskType: t.task_type,
-    weekNumber: t.week_number,
+    id: t.id, cohortId: t.cohort_id, taskType: t.task_type, weekNumber: t.week_number,
   }));
-
   const allQuizzes: QuizInfo[] = (examQuizzes ?? []).map((q) => ({
-    id: q.id,
-    cohortId: q.cohort_id,
-    quizName: q.quiz_name,
-    weekNumber: q.week_number,
-    maxScore: q.max_score,
+    id: q.id, cohortId: q.cohort_id, quizName: q.quiz_name, weekNumber: q.week_number, maxScore: q.max_score,
+  }));
+  const allVouchers: VoucherRow[] = (vouchersRaw ?? []).map((v) => ({
+    id: v.id, traineeId: v.trainee_id, voucherCode: v.voucher_code ?? null,
+    deadline: (v.deadline as string | null) ?? null, revokedAt: (v.revoked_at as string | null) ?? null,
   }));
 
   return (
@@ -236,6 +259,8 @@ export default async function AdminDashboardPage() {
       allSessions={allSessions}
       allTasks={allTasks}
       allQuizzes={allQuizzes}
+      allVouchers={allVouchers}
+      thresholds={thresholds}
     />
   );
 }
