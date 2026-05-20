@@ -21,11 +21,14 @@ export async function validateStaff(
   const profile = rows?.[0];
   if (!profile) return { error: "No account found for this email. If you're new, use the request access form." };
   if (!profile.is_active) return { error: "Your account has been deactivated. Contact an administrator." };
-  if (!["trainer", "quiz_creator", "super_admin"].includes(profile.role)) {
+  if (!["trainer", "quiz_creator", "super_admin", "admin"].includes(profile.role)) {
     return { error: "This login is for staff only. If you're a trainee, use the Trainee tab." };
   }
 
-  const dest = profile.role === "super_admin" ? "/superadmin/dashboard" : "/trainer/dashboard";
+  const dest =
+    profile.role === "super_admin" ? "/superadmin/dashboard" :
+    profile.role === "admin"       ? "/admin/dashboard" :
+    "/trainer/dashboard";
   return { dest };
 }
 
