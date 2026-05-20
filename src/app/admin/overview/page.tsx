@@ -38,7 +38,7 @@ export default async function AdminOverviewPage() {
     svc.from("trainees").select("id, cohort_id").is("deleted_at", null).in("status", ["active", "completed"]),
     svc.from("cohort_week_tasks").select("id, cohort_id, task_type"),
     svc.from("sessions").select("id, cohort_id"),
-    svc.from("vouchers").select("trainee_id, cohort_id:trainees!inner(cohort_id)"),
+    svc.from("vouchers").select("trainee_id, cohort_id:trainees!inner(cohort_id)").is("revoked_at", null),
     svc.from("exam_outcomes").select("trainee_id, outcome, cohort_id:trainees!inner(cohort_id)"),
   ]);
 

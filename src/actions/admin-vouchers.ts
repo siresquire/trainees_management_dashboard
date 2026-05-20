@@ -110,6 +110,92 @@ export async function deleteAdminVoucherPoolEntries(
   return { deleted: (data ?? []).length };
 }
 
+// ── Revoked voucher actions ────────────────────────────────────────────────
+
+export async function deleteRevokedVoucher(
+  voucherId: string,
+): Promise<{ error?: string }> {
+  try {
+    await assertAdmin();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const service = createServiceClient();
+
+  // Get the voucher code before deleting
+  const { data: voucher } = await service
+    .from("vouchers")
+    .select("voucher_code")
+    .eq("id", voucherId)
+    .not("revoked_at", "is", null)
+    .single();
+
+  if (!voucher) return { error: "Revoked voucher not found." };
+
+  // Delete the vouchers record
+  const { error: delErr } = await service
+    .from("vouchers")
+    .delete()
+    .eq("id", voucherId)
+    .not("revoked_at", "is", null);
+
+  if (delErr) return { error: delErr.message };
+
+  // Remove the pool entry for this code entirely
+  if (voucher.voucher_code) {
+    await service
+      .from("admin_voucher_pool")
+      .delete()
+      .eq("voucher_code", voucher.voucher_code);
+  }
+
+  revalidatePath("/admin/vouchers");
+  revalidatePath("/admin/dashboard");
+  return {};
+}
+
+export async function restoreRevokedVoucherToPool(
+  voucherId: string,
+): Promise<{ error?: string }> {
+  try {
+    await assertAdmin();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const service = createServiceClient();
+
+  // Get the voucher code
+  const { data: voucher } = await service
+    .from("vouchers")
+    .select("voucher_code")
+    .eq("id", voucherId)
+    .not("revoked_at", "is", null)
+    .single();
+
+  if (!voucher?.voucher_code) return { error: "Revoked voucher not found." };
+
+  // Reset the pool entry: mark as available again
+  const { error } = await service
+    .from("admin_voucher_pool")
+    .update({
+      is_used:    false,
+      revoked_at: null,
+      revoked_by: null,
+      trainee_id: null,
+      issued_by:  null,
+      issued_at:  null,
+    })
+    .eq("voucher_code", voucher.voucher_code);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/admin/vouchers");
+  revalidatePath("/admin/dashboard");
+  return {};
+}
+
 export async function updateAdminVoucherPoolCode(
   id: string,
   newCode: string,

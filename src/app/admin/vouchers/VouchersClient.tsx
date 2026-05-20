@@ -5,6 +5,8 @@ import {
   deleteAdminVoucherPoolEntry,
   deleteAdminVoucherPoolEntries,
   updateAdminVoucherPoolCode,
+  deleteRevokedVoucher,
+  restoreRevokedVoucherToPool,
 } from "@/actions/admin-vouchers";
 
 type PoolEntry = { id: string; code: string; level: "practitioner" | "associate"; isUsed: boolean; revokedAt: string | null; createdAt: string };
@@ -27,6 +29,7 @@ export default function VouchersClient({ pool, vouchers }: { pool: PoolEntry[]; 
   const [editValue, setEditValue] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [revokedError, setRevokedError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const levelPool     = pool.filter((p) => p.level === level);
@@ -79,6 +82,22 @@ export default function VouchersClient({ pool, vouchers }: { pool: PoolEntry[]; 
       const res = await deleteAdminVoucherPoolEntry(id);
       if (res.error) setDeleteError(res.error);
       else setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    });
+  }
+
+  function handleDeleteRevoked(id: string) {
+    setRevokedError(null);
+    startTransition(async () => {
+      const res = await deleteRevokedVoucher(id);
+      if (res.error) setRevokedError(res.error);
+    });
+  }
+
+  function handleRestoreToPool(id: string) {
+    setRevokedError(null);
+    startTransition(async () => {
+      const res = await restoreRevokedVoucherToPool(id);
+      if (res.error) setRevokedError(res.error);
     });
   }
 
@@ -183,37 +202,70 @@ export default function VouchersClient({ pool, vouchers }: { pool: PoolEntry[]; 
         {revoked.length === 0 ? (
           <p className="text-sm text-slate-400 px-5 py-4">No revoked vouchers.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Trainee</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Exam</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Voucher Code</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Issued</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Revoked</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 text-center">Attempt</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {revoked.map((v) => (
-                <tr key={v.id} className="hover:bg-slate-50 opacity-75">
-                  <td className="px-4 py-2.5">
-                    <p className="text-xs font-medium text-slate-700">{v.traineeName}</p>
-                    <p className="text-[10px] text-slate-400">{v.traineeEmail}</p>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{v.examType}</td>
-                  <td className="px-4 py-2.5">
-                    {v.code
-                      ? <code className="text-xs font-mono text-slate-400 line-through">{v.code}</code>
-                      : <span className="text-xs text-slate-300">—</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-slate-400 whitespace-nowrap">{fmtDate(v.issuedDate)}</td>
-                  <td className="px-4 py-2.5 text-xs text-red-500 whitespace-nowrap">{v.revokedAt ? fmtDate(v.revokedAt) : "—"}</td>
-                  <td className="px-4 py-2.5 text-xs text-slate-400 tabular-nums text-center">#{v.attemptNo}</td>
+          <>
+            {revokedError && (
+              <p className="text-xs text-red-600 px-4 py-2 bg-red-50 border-b border-red-100">{revokedError}</p>
+            )}
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Trainee</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Exam</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Voucher Code</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Issued</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Revoked</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500 text-center">Attempt</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {revoked.map((v) => (
+                  <tr key={v.id} className="hover:bg-slate-50 opacity-75 hover:opacity-100 transition-opacity">
+                    <td className="px-4 py-2.5">
+                      <p className="text-xs font-medium text-slate-700">{v.traineeName}</p>
+                      <p className="text-[10px] text-slate-400">{v.traineeEmail}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{v.examType}</td>
+                    <td className="px-4 py-2.5">
+                      {v.code
+                        ? <code className="text-xs font-mono text-slate-400 line-through">{v.code}</code>
+                        : <span className="text-xs text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-400 whitespace-nowrap">{fmtDate(v.issuedDate)}</td>
+                    <td className="px-4 py-2.5 text-xs text-red-500 whitespace-nowrap">{v.revokedAt ? fmtDate(v.revokedAt) : "—"}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-400 tabular-nums text-center">#{v.attemptNo}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center gap-2 justify-end">
+                        {/* Restore to available pool */}
+                        <button
+                          onClick={() => handleRestoreToPool(v.id)}
+                          disabled={isPending}
+                          title="Return code to available pool"
+                          className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium disabled:opacity-50 whitespace-nowrap"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Restore
+                        </button>
+                        {/* Delete permanently */}
+                        <button
+                          onClick={() => handleDeleteRevoked(v.id)}
+                          disabled={isPending}
+                          title="Delete permanently"
+                          className="text-xs text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </Section>
 

@@ -96,6 +96,7 @@ export default async function TrainerOverviewPage() {
       ? svc.from("vouchers")
           .select("trainee_id, cohort_id:trainees!inner(cohort_id)")
           .in("trainee_id", traineeIds)
+          .is("revoked_at", null)
       : Promise.resolve({ data: [] as Array<{ trainee_id: string; cohort_id: unknown }> }),
     traineeIds.length
       ? svc.from("exam_outcomes")
