@@ -191,6 +191,9 @@ export async function restoreRevokedVoucherToPool(
 
   if (error) return { error: error.message };
 
+  // Remove the vouchers record so it no longer appears in the Revoked list
+  await service.from("vouchers").delete().eq("id", voucherId);
+
   revalidatePath("/admin/vouchers");
   revalidatePath("/admin/dashboard");
   return {};
