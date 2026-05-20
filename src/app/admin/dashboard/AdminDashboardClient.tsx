@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "@/actions/admin-vouchers";
 
+
 export type AdminTraineeRow = {
   traineeId:        string;
   serialNo:         number | null;
@@ -27,14 +28,12 @@ export type AdminTraineeRow = {
 };
 
 type Props = {
-  level:                   "practitioner" | "associate";
   rows:                    AdminTraineeRow[];
   poolCountPractitioner:   number;
   poolCountAssociate:      number;
 };
 
 export default function AdminDashboardClient({
-  level,
   rows,
   poolCountPractitioner,
   poolCountAssociate,
@@ -42,12 +41,13 @@ export default function AdminDashboardClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  const [level,          setLevel]          = useState<"practitioner" | "associate">("practitioner");
   const [searchQuery,    setSearchQuery]    = useState("");
   const [selectedIds,    setSelectedIds]    = useState<Set<string>>(new Set());
   const [showUpload,     setShowUpload]     = useState(false);
   const [voucherText,    setVoucherText]    = useState("");
-  const [uploadLevel,    setUploadLevel]    = useState<"practitioner" | "associate">(level);
-  const [issueExamType,  setIssueExamType]  = useState<ExamType>(level === "associate" ? "SAA-C03" : "CCP");
+  const [uploadLevel,    setUploadLevel]    = useState<"practitioner" | "associate">("practitioner");
+  const [issueExamType,  setIssueExamType]  = useState<ExamType>("CCP");
   const [confirmIssue,   setConfirmIssue]   = useState(false);
 
   const levelRows = useMemo(
@@ -66,7 +66,10 @@ export default function AdminDashboardClient({
   const poolCount = level === "associate" ? poolCountAssociate : poolCountPractitioner;
 
   function switchLevel(l: "practitioner" | "associate") {
-    router.push(`/admin/dashboard?level=${l}`);
+    setLevel(l);
+    setSelectedIds(new Set());
+    setIssueExamType(l === "associate" ? "SAA-C03" : "CCP");
+    setUploadLevel(l);
   }
 
   function toggleSelect(id: string) {
