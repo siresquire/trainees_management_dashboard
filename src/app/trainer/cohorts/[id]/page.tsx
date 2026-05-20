@@ -31,7 +31,7 @@ export default async function CohortTraineesPage({
     supabase.from("cohorts").select("level, has_index_numbers, start_date, training_weeks").eq("id", id).single(),
     supabase
       .from("trainees")
-      .select("id, serial_no, full_name, personal_email, amalitech_email, status, user_id, graduated, deleted_at")
+      .select("id, serial_no, full_name, personal_email, amalitech_email, status, user_id, graduated, deleted_at, temp_password, temp_password_changed_at")
       .eq("cohort_id", id)
       .order("serial_no", { ascending: true, nullsFirst: false }),
     supabase.from("cohort_week_tasks").select("task_type, week_number").eq("cohort_id", id),

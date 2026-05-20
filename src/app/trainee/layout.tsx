@@ -4,9 +4,10 @@ import AppShell, { type NavItem } from "@/components/AppShell";
 import OnlinePresence from "@/components/OnlinePresence";
 
 const NAV: NavItem[] = [
-  { href: "/trainee/dashboard", label: "My Progress", icon: "home",  exact: true },
-  { href: "/trainee/quizzes",   label: "My Quizzes",  icon: "quiz"               },
-  { href: "/trainee/exams",     label: "My Exams",    icon: "chart"              },
+  { href: "/trainee/dashboard", label: "My Progress", icon: "home",     exact: true },
+  { href: "/trainee/quizzes",   label: "My Quizzes",  icon: "quiz"                  },
+  { href: "/trainee/exams",     label: "My Exams",    icon: "chart"                 },
+  { href: "/trainee/settings",  label: "Settings",    icon: "settings"              },
 ];
 
 export default async function TraineeLayout({ children }: { children: React.ReactNode }) {

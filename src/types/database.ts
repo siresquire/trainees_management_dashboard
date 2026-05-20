@@ -2026,6 +2026,8 @@ export type Database = {
           serial_no:      number | null
           show_readiness: boolean
           status:         Database["public"]["Enums"]["trainee_status"]
+          temp_password:              string | null
+          temp_password_changed_at:   string | null
           town:           string | null
           university:     string | null
           updated_at:     string
@@ -2049,6 +2051,8 @@ export type Database = {
           serial_no?:       number | null
           show_readiness?:  boolean
           status?:          Database["public"]["Enums"]["trainee_status"]
+          temp_password?:             string | null
+          temp_password_changed_at?:  string | null
           town?:            string | null
           university?:      string | null
           updated_at?:      string
@@ -2072,6 +2076,8 @@ export type Database = {
           serial_no?:       number | null
           show_readiness?:  boolean
           status?:          Database["public"]["Enums"]["trainee_status"]
+          temp_password?:             string | null
+          temp_password_changed_at?:  string | null
           town?:            string | null
           university?:      string | null
           updated_at?:      string

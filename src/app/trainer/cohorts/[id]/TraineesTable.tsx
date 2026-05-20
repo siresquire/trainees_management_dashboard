@@ -6,7 +6,7 @@ import ResendInviteButton from "./ResendInviteButton";
 import RefreshButton from "./RefreshButton";
 import { getTraineeDetail, toggleAttendanceOverride } from "@/actions/trainee-detail";
 import type { TraineeDetailData } from "@/actions/trainee-detail";
-import { setTraineeTempPassword } from "@/actions/trainees";
+import { setTraineeTempPassword, impersonateTrainee } from "@/actions/trainees";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,13 @@ type Trainee = {
   status: string;
   user_id: string | null;
   graduated: boolean;
+  temp_password: string | null;
+  temp_password_changed_at: string | null;
 };
+
+function toTitleCase(str: string): string {
+  return str.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
 
 type ProgressCounts = { kc: number; lab: number; video: number };
 
@@ -109,6 +115,8 @@ export default function TraineesTable({
   const [isGenerating,      setIsGenerating]      = useState(false);
   const [passResults,       setPassResults]       = useState<{ id: string; name: string; password?: string; error?: string }[]>([]);
   const [showPassResults,   setShowPassResults]   = useState(false);
+  const [showPassIds,       setShowPassIds]       = useState<Set<string>>(new Set());
+  const [visitError,        setVisitError]        = useState<string | null>(null);
 
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
 
@@ -189,9 +197,13 @@ export default function TraineesTable({
 
   // ── Temp password helpers ──────────────────────────────────────────────────
 
-  const eligibleForPass = useMemo(
-    () => filteredTrainees.filter((t) => !!t.user_id),
-    [filteredTrainees]
+  // All trainees are eligible — we create accounts for those without one
+  const eligibleForPass = filteredTrainees;
+
+  // Trainee whose side pane is open
+  const detailTrainee = useMemo(
+    () => liveTrainees.find((t) => t.id === detailTraineeId) ?? null,
+    [liveTrainees, detailTraineeId]
   );
 
   function toggleSelectTrainee(id: string) {
@@ -210,6 +222,14 @@ export default function TraineesTable({
     }
   }
 
+  function toggleShowPass(id: string) {
+    setShowPassIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function handleGeneratePasses() {
     const targets = filteredTrainees.filter((t) => selectedIds.has(t.id));
     if (!targets.length) return;
@@ -224,6 +244,13 @@ export default function TraineesTable({
     setShowPassResults(true);
     setTempPassMode(false);
     setSelectedIds(new Set());
+  }
+
+  async function handleVisitAccount(trainee: Trainee) {
+    setVisitError(null);
+    const res = await impersonateTrainee(trainee.id, cohortId);
+    if (res.error) { setVisitError(res.error); return; }
+    if (res.link)  window.open(res.link, "_blank");
   }
 
   return (
@@ -307,7 +334,7 @@ export default function TraineesTable({
           <div className="flex items-center gap-3 px-6 py-2.5 bg-orange-50 border-t border-orange-100">
             <span className="text-xs text-orange-700 font-medium">
               {selectedIds.size === 0
-                ? `Select trainees with accounts (${eligibleForPass.length} eligible)`
+                ? `Select trainees (${eligibleForPass.length} — accounts will be created if needed)`
                 : `${selectedIds.size} selected`}
             </span>
             {selectedIds.size > 0 && (
@@ -346,7 +373,7 @@ export default function TraineesTable({
                         checked={eligibleForPass.length > 0 && selectedIds.size >= eligibleForPass.length}
                         onChange={toggleSelectAll}
                         className="rounded border-slate-300 accent-orange-500"
-                        title="Select all with accounts"
+                        title="Select all"
                       />
                     </th>
                   )}
@@ -367,6 +394,7 @@ export default function TraineesTable({
                   )}
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Graduated</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Account</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Temp Pass</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -378,26 +406,22 @@ export default function TraineesTable({
                     <tr
                       key={t.id}
                       className={`hover:bg-orange-50 cursor-pointer transition-colors ${tempPassMode && selectedIds.has(t.id) ? "bg-orange-50" : ""}`}
-                      onClick={() => tempPassMode && t.user_id ? toggleSelectTrainee(t.id) : setDetailTraineeId(t.id)}
-                      title={tempPassMode ? (t.user_id ? "Click to select" : "No account — cannot generate password") : "Click to view trainee details"}
+                      onClick={() => tempPassMode ? toggleSelectTrainee(t.id) : setDetailTraineeId(t.id)}
+                      title={tempPassMode ? "Click to select" : "Click to view trainee details"}
                     >
                       {tempPassMode && (
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          {t.user_id ? (
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(t.id)}
-                              onChange={() => toggleSelectTrainee(t.id)}
-                              className="rounded border-slate-300 accent-orange-500"
-                            />
-                          ) : (
-                            <span className="text-slate-200 text-sm">—</span>
-                          )}
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(t.id)}
+                            onChange={() => toggleSelectTrainee(t.id)}
+                            className="rounded border-slate-300 accent-orange-500"
+                          />
                         </td>
                       )}
                       <td className="px-4 py-3 text-slate-400 text-xs">{t.serial_no ?? "—"}</td>
                       <td className="px-4 py-3 font-medium text-slate-900 hover:text-orange-600 transition-colors">
-                        {t.full_name}
+                        {isPractitioner ? toTitleCase(t.full_name) : t.full_name}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{t.personal_email}</td>
                       {!isPractitioner && (
@@ -458,6 +482,38 @@ export default function TraineesTable({
                           online={online}
                         />
                       </td>
+
+                      <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {t.temp_password_changed_at ? (
+                          <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                            Changed
+                          </span>
+                        ) : t.temp_password ? (
+                          <div className="flex items-center gap-1">
+                            <code className="text-xs font-mono text-slate-600 select-all">
+                              {showPassIds.has(t.id) ? t.temp_password : "•••••••••"}
+                            </code>
+                            <button
+                              onClick={() => toggleShowPass(t.id)}
+                              className="text-slate-300 hover:text-slate-600 transition-colors ml-0.5"
+                              title={showPassIds.has(t.id) ? "Hide password" : "Show password"}
+                            >
+                              {showPassIds.has(t.id) ? (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-slate-200 text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -488,7 +544,7 @@ export default function TraineesTable({
               </button>
             </div>
             <p className="px-6 py-3 text-xs text-slate-500 border-b border-slate-100 shrink-0">
-              Share each password directly with the trainee. These are shown once only.
+              Share each password with the trainee. Passwords are also visible in the table row until the trainee changes them.
             </p>
             <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
               {passResults.map((r) => (
@@ -545,9 +601,11 @@ export default function TraineesTable({
           <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
             {/* Header */}
             <div className="px-6 py-4 border-b border-slate-200 flex items-start justify-between shrink-0">
-              <div>
+              <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold text-slate-900">
-                  {detailData?.trainee.full_name ?? "Loading…"}
+                  {detailData?.trainee.full_name
+                    ? (isPractitioner ? toTitleCase(detailData.trainee.full_name) : detailData.trainee.full_name)
+                    : "Loading…"}
                 </h2>
                 {detailData && (
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -556,6 +614,22 @@ export default function TraineesTable({
                       {detailData.trainee.status}
                     </span>
                   </p>
+                )}
+                {detailTrainee?.user_id && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => handleVisitAccount(detailTrainee)}
+                      className="text-xs font-medium text-orange-600 hover:text-orange-700 border border-orange-200 hover:bg-orange-50 px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Visit account
+                    </button>
+                    {visitError && (
+                      <p className="text-xs text-red-600 mt-1">{visitError}</p>
+                    )}
+                  </div>
                 )}
               </div>
               <button

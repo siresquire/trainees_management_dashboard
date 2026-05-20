@@ -478,6 +478,7 @@ export async function toggleGraduation(
 }
 
 // ── Trainer: set a temp password for a trainee in their cohort ────────────
+// If the trainee has no account yet, one is created automatically.
 
 export async function setTraineeTempPassword(
   traineeId: string,
@@ -501,16 +502,96 @@ export async function setTraineeTempPassword(
   }
 
   const { data: trainee } = await supabase
-    .from("trainees").select("user_id").eq("id", traineeId).eq("cohort_id", cohortId).single();
+    .from("trainees")
+    .select("user_id, personal_email, full_name")
+    .eq("id", traineeId)
+    .eq("cohort_id", cohortId)
+    .single();
   if (!trainee) return { error: "Trainee not found." };
-  if (!trainee.user_id) return { error: "This trainee hasn't created an account yet. Invite them first." };
 
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   const bytes = randomBytes(10);
   const tempPassword = Array.from(bytes).map((b) => chars[(b as number) % chars.length]).join("");
 
-  const { error } = await svc.auth.admin.updateUserById(trainee.user_id, { password: tempPassword });
-  if (error) return { error: error.message };
+  if (!trainee.user_id) {
+    // Create account — DB triggers auto-create profiles row and link trainees.user_id
+    const { error: createErr } = await svc.auth.admin.createUser({
+      email: trainee.personal_email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: { full_name: trainee.full_name, role: "trainee" },
+    });
+    if (createErr) return { error: createErr.message };
+  } else {
+    const { error } = await svc.auth.admin.updateUserById(trainee.user_id, { password: tempPassword });
+    if (error) return { error: error.message };
+  }
+
+  // Persist temp password so trainer can see it in the table row
+  await svc
+    .from("trainees")
+    .update({ temp_password: tempPassword, temp_password_changed_at: null })
+    .eq("id", traineeId);
 
   return { tempPassword };
+}
+
+// ── Trainer: impersonate a trainee (opens their dashboard in a new tab) ───
+
+export async function impersonateTrainee(
+  traineeId: string,
+  cohortId: string
+): Promise<{ link?: string; error?: string }> {
+  const supabase = await createClient();
+  const svc      = createServiceClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+
+  const isSA = profile?.role === "super_admin";
+  if (!isSA) {
+    const { data: access } = await supabase
+      .from("cohort_access").select("role")
+      .eq("cohort_id", cohortId).eq("trainer_id", user.id).single();
+    if (!access) return { error: "No access to this cohort." };
+  }
+
+  const { data: trainee } = await supabase
+    .from("trainees")
+    .select("personal_email, user_id")
+    .eq("id", traineeId)
+    .eq("cohort_id", cohortId)
+    .single();
+  if (!trainee)         return { error: "Trainee not found." };
+  if (!trainee.user_id) return { error: "This trainee doesn't have an account yet." };
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const { data, error } = await (svc.auth.admin as any).generateLink({
+    type: "magiclink",
+    email: trainee.personal_email,
+    options: { redirectTo: `${appUrl}/trainee/dashboard` },
+  });
+
+  if (error) return { error: error.message };
+  return { link: data?.properties?.action_link };
+}
+
+// ── Trainee: mark temp password as changed when they update their own password
+
+export async function markTempPasswordChanged(): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const svc      = createServiceClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  await svc
+    .from("trainees")
+    .update({ temp_password: null, temp_password_changed_at: new Date().toISOString() })
+    .eq("user_id", user.id);
+
+  return {};
 }
