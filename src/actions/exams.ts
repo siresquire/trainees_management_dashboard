@@ -1034,3 +1034,37 @@ export async function upsertExamScoreManual(
   revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
   return { success: true };
 }
+
+// ── Exam approval toggle ──────────────────────────────────────────────────────
+
+export async function toggleExamApproval(
+  traineeId: string,
+  cohortId: string,
+  approved: boolean,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+
+  if (profile?.role !== "super_admin") {
+    const { data: access } = await supabase
+      .from("cohort_access")
+      .select("id")
+      .eq("cohort_id", cohortId)
+      .eq("trainer_id", user.id)
+      .single();
+    if (!access) return { error: "Access denied." };
+  }
+
+  const { error } = await supabase
+    .from("trainees")
+    .update({ exam_approved: approved })
+    .eq("id", traineeId);
+
+  if (error) return { error: error.message };
+  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+  return { success: true };
+}

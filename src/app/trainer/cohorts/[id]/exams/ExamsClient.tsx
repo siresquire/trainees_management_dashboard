@@ -18,6 +18,7 @@ import {
   toggleReadiness,
   updateOfficialScore,
   upsertExamScoreManual,
+  toggleExamApproval,
 } from "@/actions/exams";
 import { saveCohortThreshold } from "@/actions/cohorts";
 
@@ -36,6 +37,7 @@ type Trainee = {
   personal_email: string;
   amalitech_email: string | null;
   show_readiness: boolean;
+  exam_approved: boolean;
 };
 
 type Quiz = {
@@ -573,6 +575,15 @@ export default function ExamsClient({
       const res = await toggleReadiness(traineeId, cohortId, !current);
       if (res.error) { toast(res.error, "error"); return; }
       toast(!current ? "Readiness visible to trainee" : "Readiness hidden from trainee");
+      router.refresh();
+    });
+  }
+
+  function handleToggleExamApproval(traineeId: string, current: boolean) {
+    startTransition(async () => {
+      const res = await toggleExamApproval(traineeId, cohortId, !current);
+      if (res.error) { toast(res.error, "error"); return; }
+      toast(!current ? "Trainee approved for exam" : "Exam approval removed");
       router.refresh();
     });
   }
@@ -1182,16 +1193,9 @@ export default function ExamsClient({
                                   )}
                                 </div>
                               ))}
-                              <button
-                                onClick={() => handleOpenIssue(t.id)}
-                                className={`text-xs font-medium transition-colors ${
-                                  tvouchers.length
-                                    ? "text-slate-400 hover:text-orange-600"
-                                    : "text-orange-600 hover:text-orange-700 border border-dashed border-slate-300 hover:border-orange-400 px-2 py-0.5 rounded-lg"
-                                }`}
-                              >
-                                {tvouchers.length ? "+ Issue another" : "Issue voucher"}
-                              </button>
+                              {!tvouchers.length && (
+                                <span className="text-xs text-slate-300 italic">Issued by Admin</span>
+                              )}
                             </div>
                           </td>
 
@@ -1297,60 +1301,6 @@ export default function ExamsClient({
                           </td>
                         </tr>
 
-                        {/* ── Inline: issue voucher ── */}
-                        {issuingFor === t.id && (
-                          <tr key={`${t.id}-voucher`} className="border-b border-slate-100 bg-orange-50">
-                            <td colSpan={6} className="px-6 py-4">
-                              <p className="text-xs font-semibold text-slate-700 mb-3">
-                                Issue Voucher — {t.full_name}
-                              </p>
-                              <div className="flex items-end gap-3 flex-wrap">
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Exam Type</label>
-                                  <select
-                                    value={voucherExamType}
-                                    onChange={(e) => setVoucherExamType(e.target.value)}
-                                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
-                                  >
-                                    {EXAM_TYPES.map((et) => (
-                                      <option key={et} value={et}>{et}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                                <div className="flex-1 min-w-[220px]">
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">
-                                    Voucher Code *
-                                    {pooledMap.has(t.id) && (
-                                      <span className="ml-1.5 text-[10px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                                        Pre-filled from upload
-                                      </span>
-                                    )}
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={voucherCodeInput}
-                                    onChange={(e) => setVoucherCodeInput(e.target.value)}
-                                    placeholder="e.g. XXXX-YYYY-ZZZZ-WWWW"
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-300"
-                                  />
-                                </div>
-                                <button
-                                  onClick={() => handleIssueVoucher(t.id)}
-                                  disabled={isPending || !voucherCodeInput.trim()}
-                                  className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                                >
-                                  {isPending ? "Issuing…" : "Issue"}
-                                </button>
-                                <button
-                                  onClick={() => { setIssuingFor(null); setVoucherCodeInput(""); setOfficialError(""); }}
-                                  className="text-sm text-slate-500 hover:text-slate-700"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
 
                         {/* ── Inline: edit existing outcome ── */}
                         {editingOutcome && toutcomes.some((o) => o.id === editingOutcome) && (() => {
@@ -1774,6 +1724,7 @@ export default function ExamsClient({
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-36">Prediction</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[100px]">Confidence</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-32">Actual Outcome</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-32">Exam Approval</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Detail</th>
                   </tr>
                 </thead>
@@ -1919,6 +1870,26 @@ export default function ExamsClient({
                             </span>
                           ) : (
                             <span className="text-xs text-slate-300">Not taken</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          {t.exam_approved ? (
+                            <button
+                              onClick={() => handleToggleExamApproval(t.id, true)}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full hover:bg-green-100 disabled:opacity-50 transition-colors"
+                              title="Click to revoke approval"
+                            >
+                              ✓ Approved
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleExamApproval(t.id, false)}
+                              disabled={isPending}
+                              className="text-xs font-medium text-slate-500 border border-dashed border-slate-300 px-2 py-0.5 rounded-full hover:border-orange-400 hover:text-orange-600 disabled:opacity-50 transition-colors whitespace-nowrap"
+                            >
+                              Approve
+                            </button>
                           )}
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px]">

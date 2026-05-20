@@ -207,6 +207,7 @@ export default function InviteStaffForm() {
           >
             <option value="trainer">Trainer</option>
             <option value="quiz_creator">Quiz Creator</option>
+            <option value="admin">Admin</option>
           </select>
         </div>
 

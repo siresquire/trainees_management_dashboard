@@ -34,6 +34,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_voucher_pool: {
+        Row: {
+          id:           string
+          voucher_code: string
+          level:        string
+          is_used:      boolean
+          trainee_id:   string | null
+          issued_by:    string | null
+          issued_at:    string | null
+          created_at:   string
+        }
+        Insert: {
+          id?:          string
+          voucher_code: string
+          level:        string
+          is_used?:     boolean
+          trainee_id?:  string | null
+          issued_by?:   string | null
+          issued_at?:   string | null
+          created_at?:  string
+        }
+        Update: {
+          id?:          string
+          voucher_code?: string
+          level?:       string
+          is_used?:     boolean
+          trainee_id?:  string | null
+          issued_by?:   string | null
+          issued_at?:   string | null
+          created_at?:  string
+        }
+        Relationships: []
+      }
       attendance_overrides: {
         Row: {
           id: string
@@ -1904,6 +1937,7 @@ export type Database = {
           cohort_type: Database["public"]["Enums"]["cohort_type"] | null
           created_at: string
           deleted_at: string | null
+          exam_approved: boolean
           full_name: string
           gender: string | null
           graduated: boolean
@@ -1926,6 +1960,7 @@ export type Database = {
           cohort_type?:     Database["public"]["Enums"]["cohort_type"] | null
           created_at?:      string
           deleted_at?:      string | null
+          exam_approved?:   boolean
           full_name:        string
           gender?:          string | null
           graduated?:       boolean
@@ -1948,6 +1983,7 @@ export type Database = {
           cohort_type?:     Database["public"]["Enums"]["cohort_type"] | null
           created_at?:      string
           deleted_at?:      string | null
+          exam_approved?:   boolean
           full_name?:       string
           gender?:          string | null
           graduated?:       boolean
@@ -2347,6 +2383,7 @@ export type Database = {
       trainee_status: "active" | "completed" | "dropped" | "suspended" | "disabled"
       user_role:
         | "super_admin"
+        | "admin"
         | "trainer"
         | "trainee"
         | "quiz_creator"
@@ -2531,6 +2568,7 @@ export const Constants = {
       trainee_status: ["active", "completed", "dropped", "suspended", "disabled"],
       user_role: [
         "super_admin",
+        "admin",
         "trainer",
         "trainee",
         "quiz_creator",

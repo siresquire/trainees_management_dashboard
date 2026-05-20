@@ -22,7 +22,7 @@ export default async function ExamsPage({
   // Active non-deleted trainees for this cohort
   const { data: trainees } = await supabase
     .from("trainees")
-    .select("id, serial_no, full_name, personal_email, amalitech_email, show_readiness")
+    .select("id, serial_no, full_name, personal_email, amalitech_email, show_readiness, exam_approved")
     .eq("cohort_id", id)
     .is("deleted_at", null)
     .eq("status", "active")
@@ -295,6 +295,7 @@ export default async function ExamsPage({
       trainees={(trainees ?? []).map((t) => ({
         ...t,
         show_readiness: t.show_readiness ?? false,
+        exam_approved:  t.exam_approved  ?? false,
       }))}
       quizzes={(quizzes ?? []).map((q) => ({
         ...q,
