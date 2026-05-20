@@ -272,6 +272,12 @@ export default function ExamsClient({
   const [drillTraineeId, setDrillTraineeId] = useState<string | null>(null);
   const drillTrainee = drillTraineeId ? trainees.find((t) => t.id === drillTraineeId) ?? null : null;
 
+  // Analytics quiz filter — null means "all selected"
+  const [analyticsQuizFilter, setAnalyticsQuizFilter] = useState<Set<string> | null>(null);
+  const analyticsQuizzes = analyticsQuizFilter === null
+    ? quizzes
+    : quizzes.filter((q) => analyticsQuizFilter.has(q.id));
+
   // Score Matrix: inline cell editing
   const [editingCell, setEditingCell] = useState<{ quizId: string; traineeId: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -930,10 +936,10 @@ export default function ExamsClient({
                 Best attempt shown · Pct relative to max score · ↑↓ trend vs previous quiz
               </span>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr className="border-b border-slate-200">
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
                     {quizzes.map((q) => (
@@ -1088,10 +1094,10 @@ export default function ExamsClient({
                 Vouchers are issued by Admin. The <span className="font-medium">eye icon</span> shows automatically when analytics predict <span className="font-medium">Likely</span> or <span className="font-medium">Very Likely</span> — you can still toggle it manually.
               </p>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr className="border-b border-slate-200">
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[180px]">Voucher(s)</th>
@@ -1610,9 +1616,9 @@ export default function ExamsClient({
           </div>
 
           {/* Insight cards — cohort summary shown first for quick overview */}
-          {trainees.length > 0 && quizzes.length > 0 && (() => {
+          {trainees.length > 0 && analyticsQuizzes.length > 0 && (() => {
             const withData = trainees.filter((t) => {
-              for (const q of quizzes) {
+              for (const q of analyticsQuizzes) {
                 if (bestScoreMap.has(`${t.id}:${q.id}`)) return true;
               }
               return false;
@@ -1621,7 +1627,7 @@ export default function ExamsClient({
 
             const avgs = withData.map((t) => {
               const pcts: number[] = [];
-              for (const q of quizzes) {
+              for (const q of analyticsQuizzes) {
                 const best = bestScoreMap.get(`${t.id}:${q.id}`);
                 if (best !== undefined) pcts.push((best / q.max_score) * 100);
               }
@@ -1679,6 +1685,54 @@ export default function ExamsClient({
             );
           })()}
 
+          {/* Quiz selector for analytics */}
+          {quizzes.length > 1 && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-slate-700">Filter quizzes used in analysis</h3>
+                <button
+                  onClick={() => setAnalyticsQuizFilter(null)}
+                  className="text-xs text-slate-400 hover:text-orange-600 transition-colors"
+                >
+                  Select all
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {quizzes.map((q) => {
+                  const active = analyticsQuizFilter === null || analyticsQuizFilter.has(q.id);
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => {
+                        setAnalyticsQuizFilter((prev) => {
+                          const current = prev === null
+                            ? new Set(quizzes.map((q) => q.id))
+                            : new Set(prev);
+                          if (current.has(q.id)) current.delete(q.id); else current.add(q.id);
+                          if (current.size === 0) return prev; // don't allow deselecting all
+                          return current.size === quizzes.length ? null : current;
+                        });
+                      }}
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors border ${
+                        active
+                          ? "bg-orange-50 text-orange-700 border-orange-200"
+                          : "bg-slate-50 text-slate-400 border-transparent hover:border-slate-200"
+                      }`}
+                      title={q.quiz_name}
+                    >
+                      <span className="max-w-[120px] truncate inline-block align-middle">{q.quiz_name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {analyticsQuizFilter !== null && (
+                <p className="text-[10px] text-amber-600 mt-2">
+                  Showing predictions based on {analyticsQuizFilter.size} of {quizzes.length} quizzes
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Per-trainee prediction table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
@@ -1686,12 +1740,15 @@ export default function ExamsClient({
               <span className="text-xs text-slate-400">
                 Target exam: <span className="font-medium text-slate-600">{resolvedExamType}</span>
                 {" · "}Pass threshold: <span className="font-medium text-slate-600">{Math.round(thresholdPct)}%</span>
+                {analyticsQuizFilter !== null && analyticsQuizFilter.size < quizzes.length && (
+                  <span className="ml-2 text-amber-600 font-medium">· {analyticsQuizFilter.size}/{quizzes.length} quizzes</span>
+                )}
               </span>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr className="border-b border-slate-200">
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-8">#</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
                     <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-24">Quiz Avg</th>
@@ -1709,12 +1766,12 @@ export default function ExamsClient({
                     .map((t) => {
                       // pcts is in chronological order — quizzes are sorted by created_at ascending
                       const pcts: number[] = [];
-                      for (const q of quizzes) {
+                      for (const q of analyticsQuizzes) {
                         const best = bestScoreMap.get(`${t.id}:${q.id}`);
                         if (best !== undefined) pcts.push((best / q.max_score) * 100);
                       }
                       const quizzesAttempted = pcts.length;
-                      const quizCoverage     = quizzes.length > 0 ? quizzesAttempted / quizzes.length : 0;
+                      const quizCoverage     = analyticsQuizzes.length > 0 ? quizzesAttempted / analyticsQuizzes.length : 0;
 
                       const overallAvg: number | null = pcts.length
                         ? pcts.reduce((a, b) => a + b, 0) / pcts.length
@@ -1789,7 +1846,7 @@ export default function ExamsClient({
                                 </p>
                               )}
                               <p className="text-[10px] text-slate-400 mt-0.5">
-                                {quizzesAttempted}/{quizzes.length} quizzes
+                                {quizzesAttempted}/{analyticsQuizzes.length} quizzes
                                 {lowCoverage && <span className="text-amber-500 ml-1">⚠</span>}
                               </p>
                             </div>
@@ -1882,7 +1939,7 @@ export default function ExamsClient({
                           )}
                           {lowCoverage && overallAvg !== null && (
                             <span className="block text-amber-600 mt-0.5">
-                              ⚠ Only {quizzesAttempted} of {quizzes.length} quizzes taken — prediction may not reflect full readiness.
+                              ⚠ Only {quizzesAttempted} of {analyticsQuizzes.length} quizzes taken — prediction may not reflect full readiness.
                             </span>
                           )}
                         </td>
@@ -1893,10 +1950,12 @@ export default function ExamsClient({
             </div>
           </div>
 
-          {!quizzes.length && (
+          {!analyticsQuizzes.length && (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 py-14 text-center">
-              <p className="text-sm text-slate-400">No quiz data yet.</p>
-              <p className="text-xs text-slate-400 mt-1">Add quizzes and upload scores to see predictions.</p>
+              <p className="text-sm text-slate-400">{quizzes.length ? "No quizzes selected." : "No quiz data yet."}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {quizzes.length ? "Select at least one quiz above to see predictions." : "Add quizzes and upload scores to see predictions."}
+              </p>
             </div>
           )}
         </div>

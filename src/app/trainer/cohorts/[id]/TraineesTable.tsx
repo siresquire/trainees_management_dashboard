@@ -6,6 +6,7 @@ import ResendInviteButton from "./ResendInviteButton";
 import RefreshButton from "./RefreshButton";
 import { getTraineeDetail, toggleAttendanceOverride } from "@/actions/trainee-detail";
 import type { TraineeDetailData } from "@/actions/trainee-detail";
+import { setTraineeTempPassword } from "@/actions/trainees";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,13 @@ export default function TraineesTable({
 
   const [isPending, startTransition] = useTransition();
 
+  // Temp password mode
+  const [tempPassMode,      setTempPassMode]      = useState(false);
+  const [selectedIds,       setSelectedIds]       = useState<Set<string>>(new Set());
+  const [isGenerating,      setIsGenerating]      = useState(false);
+  const [passResults,       setPassResults]       = useState<{ id: string; name: string; password?: string; error?: string }[]>([]);
+  const [showPassResults,   setShowPassResults]   = useState(false);
+
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
 
   // Sorted list of weeks that have KC or Lab tasks
@@ -179,6 +187,45 @@ export default function TraineesTable({
     });
   }
 
+  // ── Temp password helpers ──────────────────────────────────────────────────
+
+  const eligibleForPass = useMemo(
+    () => filteredTrainees.filter((t) => !!t.user_id),
+    [filteredTrainees]
+  );
+
+  function toggleSelectTrainee(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size >= eligibleForPass.length && eligibleForPass.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(eligibleForPass.map((t) => t.id)));
+    }
+  }
+
+  async function handleGeneratePasses() {
+    const targets = filteredTrainees.filter((t) => selectedIds.has(t.id));
+    if (!targets.length) return;
+    setIsGenerating(true);
+    const results: { id: string; name: string; password?: string; error?: string }[] = [];
+    for (const t of targets) {
+      const res = await setTraineeTempPassword(t.id, cohortId);
+      results.push({ id: t.id, name: t.full_name, password: res.tempPassword, error: res.error });
+    }
+    setPassResults(results);
+    setIsGenerating(false);
+    setShowPassResults(true);
+    setTempPassMode(false);
+    setSelectedIds(new Set());
+  }
+
   return (
     <>
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
@@ -189,7 +236,21 @@ export default function TraineesTable({
               Trainees{" "}
               <span className="text-slate-400 font-normal">({filteredTrainees.length})</span>
             </h2>
-            <RefreshButton />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setTempPassMode((v) => !v); setSelectedIds(new Set()); }}
+                className={`text-xs font-medium px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  tempPassMode ? "bg-orange-500 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+                title="Generate temporary passwords for trainees who have accounts"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                Temp Passwords
+              </button>
+              <RefreshButton />
+            </div>
           </div>
 
           {/* Search bar */}
@@ -241,6 +302,32 @@ export default function TraineesTable({
           )}
         </div>
 
+        {/* Bulk action bar */}
+        {tempPassMode && (
+          <div className="flex items-center gap-3 px-6 py-2.5 bg-orange-50 border-t border-orange-100">
+            <span className="text-xs text-orange-700 font-medium">
+              {selectedIds.size === 0
+                ? `Select trainees with accounts (${eligibleForPass.length} eligible)`
+                : `${selectedIds.size} selected`}
+            </span>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleGeneratePasses}
+                disabled={isGenerating}
+                className="text-xs font-medium bg-orange-500 text-white px-3 py-1 rounded-lg hover:bg-orange-600 disabled:bg-orange-300 transition-colors"
+              >
+                {isGenerating ? "Generating…" : `Generate for ${selectedIds.size}`}
+              </button>
+            )}
+            <button
+              onClick={() => { setTempPassMode(false); setSelectedIds(new Set()); }}
+              className="text-xs text-slate-500 hover:text-slate-700 ml-auto"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {!filteredTrainees.length ? (
           <div className="py-12 text-center text-sm text-slate-400">
             {liveTrainees.length === 0
@@ -248,10 +335,21 @@ export default function TraineesTable({
               : "No trainees match your search."}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  {tempPassMode && (
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={eligibleForPass.length > 0 && selectedIds.size >= eligibleForPass.length}
+                        onChange={toggleSelectAll}
+                        className="rounded border-slate-300 accent-orange-500"
+                        title="Select all with accounts"
+                      />
+                    </th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-12">#</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Personal email</th>
@@ -279,10 +377,24 @@ export default function TraineesTable({
                   return (
                     <tr
                       key={t.id}
-                      className="hover:bg-orange-50 cursor-pointer transition-colors"
-                      onClick={() => setDetailTraineeId(t.id)}
-                      title="Click to view trainee details"
+                      className={`hover:bg-orange-50 cursor-pointer transition-colors ${tempPassMode && selectedIds.has(t.id) ? "bg-orange-50" : ""}`}
+                      onClick={() => tempPassMode && t.user_id ? toggleSelectTrainee(t.id) : setDetailTraineeId(t.id)}
+                      title={tempPassMode ? (t.user_id ? "Click to select" : "No account — cannot generate password") : "Click to view trainee details"}
                     >
+                      {tempPassMode && (
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          {t.user_id ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(t.id)}
+                              onChange={() => toggleSelectTrainee(t.id)}
+                              className="rounded border-slate-300 accent-orange-500"
+                            />
+                          ) : (
+                            <span className="text-slate-200 text-sm">—</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-slate-400 text-xs">{t.serial_no ?? "—"}</td>
                       <td className="px-4 py-3 font-medium text-slate-900 hover:text-orange-600 transition-colors">
                         {t.full_name}
@@ -354,6 +466,71 @@ export default function TraineesTable({
           </div>
         )}
       </div>
+
+      {/* Temp password results modal */}
+      {showPassResults && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Temp Passwords Generated</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {passResults.filter((r) => r.password).length} of {passResults.length} succeeded
+                </p>
+              </div>
+              <button
+                onClick={() => { setPassResults([]); setShowPassResults(false); }}
+                className="text-slate-400 hover:text-slate-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="px-6 py-3 text-xs text-slate-500 border-b border-slate-100 shrink-0">
+              Share each password directly with the trainee. These are shown once only.
+            </p>
+            <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
+              {passResults.map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 border-b border-slate-100 last:border-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{r.name}</p>
+                    {r.error ? (
+                      <p className="text-xs text-red-600 mt-0.5">{r.error}</p>
+                    ) : (
+                      <code className="text-xs font-mono bg-slate-100 border border-slate-200 px-2 py-0.5 rounded mt-0.5 inline-block select-all">
+                        {r.password}
+                      </code>
+                    )}
+                  </div>
+                  {!r.error && r.password && (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(r.password!)}
+                      className="text-slate-300 hover:text-orange-500 transition-colors shrink-0"
+                      title="Copy password"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-slate-200 shrink-0">
+              <button
+                onClick={() => {
+                  const text = passResults.filter((r) => r.password).map((r) => `${r.name}: ${r.password}`).join("\n");
+                  navigator.clipboard.writeText(text);
+                }}
+                className="text-xs font-medium text-slate-600 hover:text-orange-600 transition-colors"
+              >
+                Copy all to clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Detail slide-over pane */}
       {detailTraineeId && (
