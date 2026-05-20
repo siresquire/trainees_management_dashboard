@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import AppShell, { type NavItem } from "@/components/AppShell";
 
 const NAV: NavItem[] = [
-  { href: "/admin/overview",   label: "Overview",   icon: "chart", exact: true },
-  { href: "/admin/dashboard",  label: "Trainees",   icon: "grid",  exact: true },
+  { href: "/admin/overview",   label: "Overview",   icon: "chart",    exact: true },
+  { href: "/admin/dashboard",  label: "Trainees",   icon: "grid",     exact: true },
+  { href: "/admin/vouchers",   label: "Vouchers",   icon: "ticket",   exact: true },
   { href: "/admin/profile",    label: "Profile",    icon: "settings", exact: true },
 ];
 

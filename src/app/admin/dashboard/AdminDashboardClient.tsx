@@ -63,6 +63,18 @@ function EligBadge({ status }: { status: EligibilityStatus }) {
   return <span className="text-xs text-slate-300">—</span>;
 }
 
+function VoucherStat({ icon, count, color, tip }: { icon: "pool" | "issued" | "revoked"; count: number; color: "slate" | "green" | "red"; tip: string }) {
+  const textColor = color === "green" ? "text-green-600" : color === "red" ? "text-red-500" : "text-slate-500";
+  return (
+    <span className={`flex items-center gap-1 text-xs font-semibold ${textColor}`} title={tip}>
+      {icon === "pool"    && <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>}
+      {icon === "issued"  && <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+      {icon === "revoked" && <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+      {count}
+    </span>
+  );
+}
+
 export default function AdminDashboardClient({
   rows,
   poolCountPractitioner,
@@ -96,6 +108,7 @@ export default function AdminDashboardClient({
   const [deadlineRow,     setDeadlineRow]     = useState<AdminTraineeRow | null>(null);
   const [deadlineVal,     setDeadlineVal]     = useState("");
   const [showRevoked,     setShowRevoked]     = useState(false);
+  const [revealedCodes,   setRevealedCodes]   = useState<Set<string>>(new Set());
 
   const weekPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -178,6 +191,12 @@ export default function AdminDashboardClient({
   }
 
   const poolCount = level === "associate" ? poolCountAssociate : poolCountPractitioner;
+
+  const issuedPractitioner = useMemo(() => rows.filter((r) => r.cohortLevel === "practitioner" && r.issuedVoucherId).length, [rows]);
+  const issuedAssociate    = useMemo(() => rows.filter((r) => r.cohortLevel === "associate"    && r.issuedVoucherId).length, [rows]);
+  const traineeLevel = useMemo(() => new Map(rows.map((r) => [r.traineeId, r.cohortLevel])), [rows]);
+  const revokedPractitioner = useMemo(() => revokedVouchers.filter((rv) => traineeLevel.get(rv.traineeId) === "practitioner").length, [revokedVouchers, traineeLevel]);
+  const revokedAssociate    = useMemo(() => revokedVouchers.filter((rv) => traineeLevel.get(rv.traineeId) === "associate").length,    [revokedVouchers, traineeLevel]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
   function switchLevel(l: "practitioner" | "associate") {
@@ -273,9 +292,24 @@ export default function AdminDashboardClient({
             <p className="text-sm text-slate-500 mt-0.5">Voucher issuance and trainee readiness across all cohorts</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap text-sm">
-            <span className="text-slate-600"><span className="font-semibold text-slate-900">{poolCountPractitioner}</span> Practitioner codes</span>
-            <span className="text-slate-300">·</span>
-            <span className="text-slate-600"><span className="font-semibold text-slate-900">{poolCountAssociate}</span> Associate codes</span>
+            {/* Practitioner stats */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">P</span>
+              <VoucherStat icon="pool"    count={poolCountPractitioner} color="slate" tip="Available in pool" />
+              <span className="text-slate-200">|</span>
+              <VoucherStat icon="issued"  count={issuedPractitioner}    color="green" tip="Issued" />
+              <span className="text-slate-200">|</span>
+              <VoucherStat icon="revoked" count={revokedPractitioner}   color="red"   tip="Revoked" />
+            </div>
+            {/* Associate stats */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">A</span>
+              <VoucherStat icon="pool"    count={poolCountAssociate} color="slate" tip="Available in pool" />
+              <span className="text-slate-200">|</span>
+              <VoucherStat icon="issued"  count={issuedAssociate}    color="green" tip="Issued" />
+              <span className="text-slate-200">|</span>
+              <VoucherStat icon="revoked" count={revokedAssociate}   color="red"   tip="Revoked" />
+            </div>
             <button
               onClick={() => setShowThresholds((v) => !v)}
               className="flex items-center gap-1.5 text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg transition-colors"
@@ -564,15 +598,30 @@ export default function AdminDashboardClient({
                         <td className="px-3 py-3">
                           <button onClick={() => setQuizPanelRow(r)} className="text-xs text-purple-600 hover:text-purple-700 underline underline-offset-2">View</button>
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-3 text-center">
                           {r.examApproved
-                            ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">✓ Approved</span>
+                            ? <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Exam approved"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-3">
-                          {r.issuedVoucher
-                            ? <code className="text-xs font-mono text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded select-all">{r.issuedVoucher}</code>
-                            : <span className="text-xs text-slate-300">—</span>}
+                          {r.issuedVoucher ? (
+                            revealedCodes.has(r.traineeId) ? (
+                              <button onClick={() => setRevealedCodes((p) => { const n = new Set(p); n.delete(r.traineeId); return n; })} title="Click to hide">
+                                <code className="text-xs font-mono text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded select-all">{r.issuedVoucher}</code>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setRevealedCodes((p) => new Set([...p, r.traineeId]))}
+                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors group"
+                                title="Click to reveal code"
+                              >
+                                <code className="font-mono text-slate-300">{r.issuedVoucher.slice(0, 4)}••••</code>
+                                <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              </button>
+                            )
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-3">
                           {r.issuedVoucherId ? (
