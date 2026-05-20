@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "@/actions/admin-vouchers";
 import { revokeVoucher, setVoucherDeadline, saveAdminThresholds } from "@/actions/admin-settings";
-import type { SessionInfo, TaskInfo, QuizInfo, VoucherRow, ThresholdSettings } from "./page";
+import type { SessionInfo, TaskInfo, QuizInfo, VoucherRow, RevokedVoucherRow, ThresholdSettings } from "./page";
 
 export type AdminTraineeRow = {
   traineeId:        string;
@@ -41,6 +41,7 @@ type Props = {
   allTasks:              TaskInfo[];
   allQuizzes:            QuizInfo[];
   allVouchers:           VoucherRow[];
+  revokedVouchers:       RevokedVoucherRow[];
   thresholds:            Record<string, ThresholdSettings>;
 };
 
@@ -70,6 +71,7 @@ export default function AdminDashboardClient({
   allTasks,
   allQuizzes,
   allVouchers,
+  revokedVouchers,
   thresholds,
 }: Props) {
   const router = useRouter();
@@ -93,6 +95,7 @@ export default function AdminDashboardClient({
   const [stipendPct,      setStipendPct]      = useState(thresholds[level]?.stipendPct ?? 0);
   const [deadlineRow,     setDeadlineRow]     = useState<AdminTraineeRow | null>(null);
   const [deadlineVal,     setDeadlineVal]     = useState("");
+  const [showRevoked,     setShowRevoked]     = useState(false);
 
   const weekPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -484,9 +487,9 @@ export default function AdminDashboardClient({
           {!filtered.length ? (
             <div className="py-12 text-center text-sm text-slate-400">No trainees found.</div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="px-4 py-3 w-8">
                       <input type="checkbox" className="rounded border-slate-300"
@@ -605,6 +608,62 @@ export default function AdminDashboardClient({
           )}
         </div>
       </div>
+
+      {/* ── Revoked Vouchers ── */}
+      {revokedVouchers.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <button
+            onClick={() => setShowRevoked((v) => !v)}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-900">Revoked Vouchers</span>
+              <span className="text-xs font-medium bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{revokedVouchers.length}</span>
+            </div>
+            <svg className={`w-4 h-4 text-slate-400 transition-transform ${showRevoked ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showRevoked && (
+            <div className="border-t border-slate-100 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                    <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Trainee</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Cohort</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Voucher Code</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-slate-500 whitespace-nowrap">Attempt #</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-slate-500 whitespace-nowrap">Revoked At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {revokedVouchers.map((rv) => {
+                    const trainee = rows.find((r) => r.traineeId === rv.traineeId);
+                    return (
+                      <tr key={rv.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5">
+                          <p className="text-xs font-medium text-slate-800">{trainee?.fullName ?? "—"}</p>
+                          <p className="text-[10px] text-slate-400">{trainee?.personalEmail ?? ""}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-slate-600 whitespace-nowrap">{trainee?.cohortCode ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          {rv.voucherCode
+                            ? <code className="text-xs font-mono text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{rv.voucherCode}</code>
+                            : <span className="text-xs text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-slate-500 tabular-nums">{rv.attemptNo}</td>
+                        <td className="px-4 py-2.5 text-xs text-red-500 whitespace-nowrap">
+                          {new Date(rv.revokedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Deadline picker modal ── */}
       {deadlineRow && (

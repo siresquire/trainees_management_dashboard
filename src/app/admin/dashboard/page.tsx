@@ -4,7 +4,8 @@ import AdminDashboardClient, { type AdminTraineeRow } from "./AdminDashboardClie
 export type SessionInfo = { id: string; cohortId: string; weekNumber: number | null };
 export type TaskInfo    = { id: string; cohortId: string; taskType: string; weekNumber: number };
 export type QuizInfo    = { id: string; cohortId: string; quizName: string; weekNumber: number; maxScore: number };
-export type VoucherRow  = { id: string; traineeId: string; voucherCode: string | null; deadline: string | null; revokedAt: string | null };
+export type VoucherRow        = { id: string; traineeId: string; voucherCode: string | null; deadline: string | null; revokedAt: string | null };
+export type RevokedVoucherRow = { id: string; traineeId: string; voucherCode: string | null; revokedAt: string; attemptNo: number };
 export type ThresholdSettings = { dataBundlePct: number; stipendPct: number };
 
 export default async function AdminDashboardPage() {
@@ -75,6 +76,7 @@ export default async function AdminDashboardPage() {
     { data: completionRows, error: completionErr },
     { data: attendanceRows, error: attendanceErr },
     { data: vouchersRaw },
+    { data: revokedVouchersRaw },
     { data: examQuizzes },
     { data: examScores },
     { data: appointmentsRaw },
@@ -91,6 +93,9 @@ export default async function AdminDashboardPage() {
     traineeIds.length
       ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, deadline, revoked_at").in("trainee_id", traineeIds).is("revoked_at", null).order("attempt_no", { ascending: false })
       : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; deadline: string | null; revoked_at: string | null }[] }),
+    traineeIds.length
+      ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, revoked_at").in("trainee_id", traineeIds).not("revoked_at", "is", null).order("revoked_at", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; revoked_at: string | null }[] }),
     cohortIds.length
       ? svc.from("exam_quizzes").select("id, cohort_id, quiz_name, week_number, max_score").in("cohort_id", cohortIds).order("week_number", { ascending: true })
       : Promise.resolve({ data: [] as { id: string; cohort_id: string; quiz_name: string; week_number: number; max_score: number }[] }),
@@ -250,6 +255,10 @@ export default async function AdminDashboardPage() {
     id: v.id, traineeId: v.trainee_id, voucherCode: v.voucher_code ?? null,
     deadline: (v.deadline as string | null) ?? null, revokedAt: (v.revoked_at as string | null) ?? null,
   }));
+  const revokedVouchers: RevokedVoucherRow[] = (revokedVouchersRaw ?? []).map((v) => ({
+    id: v.id, traineeId: v.trainee_id, voucherCode: v.voucher_code ?? null,
+    revokedAt: v.revoked_at as string, attemptNo: v.attempt_no as number,
+  }));
 
   return (
     <AdminDashboardClient
@@ -260,6 +269,7 @@ export default async function AdminDashboardPage() {
       allTasks={allTasks}
       allQuizzes={allQuizzes}
       allVouchers={allVouchers}
+      revokedVouchers={revokedVouchers}
       thresholds={thresholds}
     />
   );

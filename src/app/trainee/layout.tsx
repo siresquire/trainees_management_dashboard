@@ -25,7 +25,7 @@ export default async function TraineeLayout({ children }: { children: React.Reac
   if (!profile.is_active) redirect("/suspended");
 
   return (
-    <AppShell navItems={NAV} user={{ name: profile.full_name, role: profile.role }} theme="light">
+    <AppShell navItems={NAV} user={{ name: profile.full_name, role: profile.role }} theme="light" settingsHref="/trainee/settings">
       <OnlinePresence />
       {children}
     </AppShell>

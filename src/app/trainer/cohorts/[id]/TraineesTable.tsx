@@ -6,7 +6,7 @@ import ResendInviteButton from "./ResendInviteButton";
 import RefreshButton from "./RefreshButton";
 import { getTraineeDetail, toggleAttendanceOverride } from "@/actions/trainee-detail";
 import type { TraineeDetailData } from "@/actions/trainee-detail";
-import { setTraineeTempPassword, impersonateTrainee } from "@/actions/trainees";
+import { setTraineeTempPassword } from "@/actions/trainees";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -116,7 +116,6 @@ export default function TraineesTable({
   const [passResults,       setPassResults]       = useState<{ id: string; name: string; password?: string; error?: string }[]>([]);
   const [showPassResults,   setShowPassResults]   = useState(false);
   const [showPassIds,       setShowPassIds]       = useState<Set<string>>(new Set());
-  const [visitError,        setVisitError]        = useState<string | null>(null);
   const [copiedId,          setCopiedId]          = useState<string | null>(null);
 
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
@@ -254,11 +253,8 @@ export default function TraineesTable({
     });
   }
 
-  async function handleVisitAccount(trainee: Trainee) {
-    setVisitError(null);
-    const res = await impersonateTrainee(trainee.id, cohortId);
-    if (res.error) { setVisitError(res.error); return; }
-    if (res.link)  window.open(res.link, "_blank");
+  function handleVisitAccount(trainee: Trainee) {
+    window.open(`/trainer/cohorts/${cohortId}/trainees/${trainee.id}`, "_blank");
   }
 
   return (
@@ -644,9 +640,6 @@ export default function TraineesTable({
                       </svg>
                       Visit account
                     </button>
-                    {visitError && (
-                      <p className="text-xs text-red-600 mt-1">{visitError}</p>
-                    )}
                   </div>
                 )}
               </div>

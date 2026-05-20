@@ -33,6 +33,18 @@ export async function submitExamAppointment(formData: FormData): Promise<{ error
 
   const svc = createServiceClient();
 
+  // Validate exam date doesn't exceed voucher deadline
+  if (voucherId) {
+    const { data: voucher } = await svc
+      .from("vouchers")
+      .select("deadline")
+      .eq("id", voucherId)
+      .maybeSingle();
+    if (voucher?.deadline && examDate > voucher.deadline.slice(0, 10)) {
+      return { error: `Exam date cannot be after the voucher deadline (${voucher.deadline.slice(0, 10)}).` };
+    }
+  }
+
   // Upsert — replace any prior appointment for this trainee+voucher combo
   const { error } = await svc
     .from("exam_appointments")

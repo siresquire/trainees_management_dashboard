@@ -226,7 +226,11 @@ export default function TraineeExamsClient({
                               <div>
                                 <label className="block text-xs font-medium text-slate-600 mb-1">Exam date *</label>
                                 <input name="exam_date" type="date" required
+                                  max={appointmentVoucher?.deadline?.slice(0, 10) ?? undefined}
                                   className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                                {appointmentVoucher?.deadline && (
+                                  <p className="text-[10px] text-amber-600 mt-0.5">Must be on or before {fmtDate(appointmentVoucher.deadline)}</p>
+                                )}
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-slate-600 mb-1">Exam time *</label>

@@ -23,9 +23,10 @@ interface Props {
   navItems: NavItem[];
   user: { name: string; role: string };
   theme?: AppShellTheme;
+  settingsHref?: string;
 }
 
-export default function AppShell({ children, navItems, user, theme = "light" }: Props) {
+export default function AppShell({ children, navItems, user, theme = "light", settingsHref }: Props) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -110,17 +111,31 @@ export default function AppShell({ children, navItems, user, theme = "light" }: 
 
         {/* User + sign out */}
         <div className={`border-t ${divider} p-3 flex-shrink-0`}>
-          <div className="flex items-center gap-3 px-2 py-2">
-            <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-semibold text-sm">
-                {user.name?.[0]?.toUpperCase() ?? "?"}
-              </span>
+          {settingsHref ? (
+            <Link href={settingsHref} className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${hoverBg}`}>
+              <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white font-semibold text-sm">
+                  {user.name?.[0]?.toUpperCase() ?? "?"}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-medium truncate ${textBold}`}>{user.name}</p>
+                <p className={`text-xs capitalize ${textMuted}`}>{user.role.replace(/_/g, " ")}</p>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 px-2 py-2">
+              <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white font-semibold text-sm">
+                  {user.name?.[0]?.toUpperCase() ?? "?"}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-medium truncate ${textBold}`}>{user.name}</p>
+                <p className={`text-xs capitalize ${textMuted}`}>{user.role.replace(/_/g, " ")}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className={`text-xs font-medium truncate ${textBold}`}>{user.name}</p>
-              <p className={`text-xs capitalize ${textMuted}`}>{user.role.replace(/_/g, " ")}</p>
-            </div>
-          </div>
+          )}
           <form action={signOut}>
             <button
               type="submit"

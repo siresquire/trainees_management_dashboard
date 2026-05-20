@@ -119,11 +119,11 @@ export default async function TraineeExamsPage() {
       myRankMap={Object.fromEntries(myRankMap)}
       avgPct={avgPct}
       quizCount={pcts.length}
-      vouchers={(myVouchers ?? []).map((v) => ({
+      vouchers={(myVouchers ?? []).map((v, i) => ({
         id:                 v.id,
         exam_type:          v.exam_type as string,
         issued_date:        v.issued_date as string,
-        attempt_no:         v.attempt_no as number,
+        attempt_no:         i + 1,
         voucher_code:       (v.voucher_code as string | null) ?? null,
         deadline:           (v.deadline as string | null) ?? null,
         appointment_submitted: appointedVoucherIds.has(v.id),

@@ -33,6 +33,7 @@ export default async function TrainerLayout({ children }: { children: React.Reac
       navItems={nav}
       user={{ name: profile.full_name, role: profile.role }}
       theme="light"
+      settingsHref="/trainer/profile"
     >
       {children}
     </AppShell>
