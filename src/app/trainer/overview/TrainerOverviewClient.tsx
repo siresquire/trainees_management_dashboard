@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  PieChart, Pie, Cell,
 } from "recharts";
 import type { TrainerOverviewCohort, TraineeSummary } from "./page";
 
@@ -81,13 +81,14 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Pro
   ].filter((d) => d.value > 0);
   const outcomePieColors = ["#10b981", "#f43f5e", "#f97316"];
 
-  // ── Radar ────────────────────────────────────────────────────────────────
-  const radarData = filtered.length <= 8 ? filtered.map((c) => ({
-    cohort:     c.codeName,
+  // ── Performance matrix (replaces radar — works for any cohort count) ─────
+  const matrixData = filtered.map((c) => ({
+    name:       c.codeName,
+    id:         c.id,
     Labs:       pct(c.labsDoneTotal, c.labsTotal),
     KCs:        pct(c.kcsDoneTotal,  c.kcsTotal),
     Attendance: pct(c.sessionsAttended, c.sessionsTotal),
-  })) : [];
+  }));
 
   const selectedCohort = filtered.find((c) => c.id === selectedCohortId) ?? null;
   const drilldownTrainees = selectedCohortId ? (traineesByCohort[selectedCohortId] ?? []) : [];
@@ -188,22 +189,22 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Pro
         </div>
       </div>
 
-      {/* ── Radar chart (≤8 cohorts) ── */}
-      {radarData.length > 0 && (
+      {/* ── Performance matrix ── */}
+      {matrixData.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <h2 className="text-sm font-semibold text-slate-900 mb-1">Cohort Performance Radar</h2>
-          <p className="text-xs text-slate-400 mb-4">Comparison of Labs, KCs, and Attendance completion % across cohorts</p>
-          <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
-              <PolarGrid stroke="#cbd5e1" />
-              <PolarAngleAxis dataKey="cohort" tick={{ fontSize: 11 }} />
-              <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Radar name="Labs"       dataKey="Labs"       stroke="#f97316" fill="#f97316" fillOpacity={0.3} strokeWidth={2} dot={true} />
-              <Radar name="KCs"        dataKey="KCs"        stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.3} strokeWidth={2} dot={true} />
-              <Radar name="Attendance" dataKey="Attendance" stroke="#10b981" fill="#10b981" fillOpacity={0.3} strokeWidth={2} dot={true} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Cohort Performance Comparison</h2>
+          <p className="text-xs text-slate-400 mb-4">Labs, KCs, and Attendance completion % across cohorts</p>
+          <ResponsiveContainer width="100%" height={Math.max(180, matrixData.length * 64)}>
+            <BarChart data={matrixData} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 80 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={76} />
               <Tooltip formatter={(v) => `${v}%`} />
-            </RadarChart>
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="Labs"       fill="#f97316" radius={[0, 4, 4, 0]} barSize={14} />
+              <Bar dataKey="KCs"        fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={14} />
+              <Bar dataKey="Attendance" fill="#10b981" radius={[0, 4, 4, 0]} barSize={14} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       )}
