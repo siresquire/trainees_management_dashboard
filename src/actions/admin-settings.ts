@@ -187,6 +187,40 @@ export async function loadAdminThresholds(): Promise<{
   };
 }
 
+// ── Save exam passing score ───────────────────────────────────────────────────
+
+export async function saveExamPassingScore(
+  level: string,
+  passingScore: number,
+): Promise<{ error?: string }> {
+  let profileId: string;
+  try {
+    ({ profileId } = await assertAdmin());
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  if (passingScore < 100 || passingScore > 1000) {
+    return { error: "Passing score must be between 100 and 1000." };
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("admin_settings")
+    .update({
+      exam_passing_score: passingScore,
+      updated_at:         new Date().toISOString(),
+      updated_by:         profileId,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    .eq("level", level);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin/profile");
+  revalidatePath("/admin/exams");
+  return {};
+}
+
 // ── Load just the attendance threshold mins (used by cohort forms) ─────────
 
 export async function loadAttendanceThresholdMins(): Promise<{ universityMins: number; externalMins: number }> {

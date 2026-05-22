@@ -4,11 +4,31 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { submitMyExamResult, deleteMyExamResult } from "@/actions/exams";
-import { submitExamAppointment } from "@/actions/exam-appointments";
+import { upsertExamSchedule } from "@/actions/exam-schedules";
 
 type Quiz = { id: string; quiz_name: string; focus_type: string; focus_label: string | null; week_number: number; quiz_date: string | null; max_score: number };
-type Voucher = { id: string; exam_type: string; issued_date: string; attempt_no: number; voucher_code: string | null; deadline: string | null; appointment_submitted: boolean };
 type Outcome = { id: string; exam_type: string; actual_score: number | null; outcome: string; exam_date: string | null; attempt_no: number; notes: string | null; self_reported: boolean };
+type ExamSchedule = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  other_names: string | null;
+  personal_email: string;
+  cohort_display_name: string;
+  region: string;
+  aws_account_id: string | null;
+  aws_cert_email: string | null;
+  canvas_grad_status: string;
+  batch_number: number | null;
+  voucher_issued: boolean;
+  submitted_at: string;
+};
+
+const GHANA_REGIONS = [
+  "Ahafo", "Ashanti", "Bono", "Bono East", "Central", "Eastern",
+  "Greater Accra", "North East", "Northern", "Oti", "Savannah",
+  "Upper East", "Upper West", "Volta", "Western", "Western North",
+];
 
 const EXAM_TYPES_BY_LEVEL: Record<string, string[]> = {
   practitioner: ["CCP"],
@@ -35,21 +55,26 @@ function fmtShortDate(iso: string) {
 }
 
 export default function TraineeExamsClient({
-  traineeId, cohortId, cohortName, cohortLevel, showReadiness,
-  quizzes, myBestMap, myRankMap, avgPct, quizCount, vouchers, outcomes,
+  traineeId, cohortId, cohortName, cohortLevel, showReadiness, graduated,
+  personalEmail, defaultFirstName, defaultLastName,
+  quizzes, myBestMap, myRankMap, avgPct, quizCount, outcomes, existingSchedule,
 }: {
-  traineeId:     string;
-  cohortId:      string;
-  cohortName:    string | null;
-  cohortLevel:   string;
-  showReadiness: boolean;
-  quizzes:       Quiz[];
-  myBestMap:     Record<string, number>;
-  myRankMap:     Record<string, { rank: number; total: number }>;
-  avgPct:        number | null;
-  quizCount:     number;
-  vouchers:      Voucher[];
-  outcomes:      Outcome[];
+  traineeId:         string;
+  cohortId:          string;
+  cohortName:        string | null;
+  cohortLevel:       string;
+  showReadiness:     boolean;
+  graduated:         boolean;
+  personalEmail:     string;
+  defaultFirstName:  string;
+  defaultLastName:   string;
+  quizzes:           Quiz[];
+  myBestMap:         Record<string, number>;
+  myRankMap:         Record<string, { rank: number; total: number }>;
+  avgPct:            number | null;
+  quizCount:         number;
+  outcomes:          Outcome[];
+  existingSchedule:  ExamSchedule | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -57,10 +82,10 @@ export default function TraineeExamsClient({
   const banner = eligibilityBanner(avgPct, quizCount);
   const availableExamTypes = EXAM_TYPES_BY_LEVEL[cohortLevel] ?? ["CCP", "SAA-C03", "DVA-C02"];
 
-  const [showReportForm,    setShowReportForm]    = useState(false);
-  const [reportError,       setReportError]       = useState("");
-  const [appointmentVoucher, setAppointmentVoucher] = useState<Voucher | null>(null);
-  const [apptError,         setApptError]         = useState("");
+  const [showReportForm,  setShowReportForm]  = useState(false);
+  const [reportError,     setReportError]     = useState("");
+  const [showSchedForm,   setShowSchedForm]   = useState(false);
+  const [schedError,      setSchedError]      = useState("");
 
   const nextAttemptNo = outcomes.length ? Math.max(...outcomes.map((o) => o.attempt_no)) + 1 : 1;
 
@@ -87,18 +112,20 @@ export default function TraineeExamsClient({
     });
   }
 
-  function handleSubmitAppointment(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmitSchedule(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     fd.set("trainee_id", traineeId);
     fd.set("cohort_id",  cohortId);
-    fd.set("voucher_id", appointmentVoucher?.id ?? "");
-    setApptError("");
+    fd.set("cohort_display_name", cohortName ?? "");
+    fd.set("personal_email", personalEmail);
+    fd.set("canvas_grad_status", "Graduated");
+    setSchedError("");
     startTransition(async () => {
-      const res = await submitExamAppointment(fd);
-      if (res.error) { setApptError(res.error); toast(res.error, "error"); return; }
-      toast("Exam appointment submitted — your voucher code is now visible!");
-      setAppointmentVoucher(null);
+      const res = await upsertExamSchedule(fd);
+      if (res.error) { setSchedError(res.error); toast(res.error, "error"); return; }
+      toast(existingSchedule ? "Registration updated" : "Exam registration submitted!");
+      setShowSchedForm(false);
       router.refresh();
     });
   }
@@ -168,107 +195,138 @@ export default function TraineeExamsClient({
         </div>
       )}
 
-      {/* Voucher status */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">
-          <h2 className="text-sm font-semibold text-slate-700">Exam Voucher</h2>
-        </div>
-        <div className="px-5 py-4">
-          {vouchers.length > 0 ? (
-            <div className="space-y-4">
-              {vouchers.map((v) => (
-                <div key={v.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 px-3 py-1 rounded-full">
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                      Voucher Issued — {v.exam_type}
-                    </span>
-                    <span className="text-xs text-slate-400">Attempt #{v.attempt_no} · {fmtDate(v.issued_date)}</span>
-                    {v.deadline && (
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${new Date(v.deadline) < new Date() ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
-                        Deadline: {fmtDate(v.deadline)}
-                      </span>
-                    )}
-                  </div>
-
-                  {v.voucher_code ? (
-                    v.appointment_submitted ? (
-                      <div>
-                        <p className="text-xs text-slate-500 mb-1">Your voucher code:</p>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <code className="text-base font-mono font-bold tracking-widest text-slate-900 bg-white border-2 border-slate-300 px-4 py-2 rounded-lg select-all">
-                            {v.voucher_code}
-                          </code>
-                          <p className="text-xs text-slate-400">Use this code when booking your exam on Pearson VUE.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-xs text-slate-500">
-                          Your voucher code is ready but <strong>hidden</strong> until you submit your exam appointment details below.
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <code className="text-base font-mono font-bold tracking-widest text-slate-400 bg-slate-100 border-2 border-slate-200 px-4 py-2 rounded-lg select-none">
-                            ••••••••••••
-                          </code>
-                        </div>
-                        {appointmentVoucher?.id !== v.id ? (
-                          <button
-                            onClick={() => setAppointmentVoucher(v)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg transition-colors"
-                          >
-                            Submit exam appointment to reveal code
-                          </button>
-                        ) : (
-                          <form onSubmit={handleSubmitAppointment} className="mt-3 space-y-3 bg-orange-50 border border-orange-200 rounded-xl p-4">
-                            <p className="text-xs font-semibold text-slate-700">When and where are you sitting your exam?</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Exam date *</label>
-                                <input name="exam_date" type="date" required
-                                  max={appointmentVoucher?.deadline?.slice(0, 10) ?? undefined}
-                                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
-                                {appointmentVoucher?.deadline && (
-                                  <p className="text-[10px] text-amber-600 mt-0.5">Must be on or before {fmtDate(appointmentVoucher.deadline)}</p>
-                                )}
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Exam time *</label>
-                                <input name="exam_time" type="time" required
-                                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Location / centre *</label>
-                                <input name="exam_location" type="text" required placeholder="e.g. Accra Pearson VUE"
-                                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
-                              </div>
-                            </div>
-                            {apptError && <p className="text-xs text-red-600">{apptError}</p>}
-                            <div className="flex gap-2">
-                              <button type="submit" disabled={isPending}
-                                className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
-                                {isPending ? "Submitting…" : "Submit & reveal code"}
-                              </button>
-                              <button type="button" onClick={() => setAppointmentVoucher(null)}
-                                className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50">
-                                Cancel
-                              </button>
-                            </div>
-                          </form>
-                        )}
-                      </div>
-                    )
-                  ) : (
-                    <p className="text-xs text-slate-400 mt-1">Voucher code not yet assigned — contact your trainer.</p>
-                  )}
-                </div>
-              ))}
+      {/* Exam Scheduling — only for graduated trainees */}
+      {graduated && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-700">Exam Registration</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Submit your details to register for your certification exam.</p>
             </div>
-          ) : (
-            <p className="text-sm text-slate-400">No voucher issued yet.</p>
+            {!showSchedForm && (
+              <button
+                onClick={() => setShowSchedForm(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg flex-shrink-0"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                {existingSchedule ? "Edit Registration" : "Register for Exam"}
+              </button>
+            )}
+          </div>
+
+          {/* Existing registration summary */}
+          {existingSchedule && !showSchedForm && (
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                {existingSchedule.voucher_issued ? (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 px-3 py-1 rounded-full">
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    Voucher Issued
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
+                    Pending voucher
+                  </span>
+                )}
+                {existingSchedule.batch_number && (
+                  <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                    Batch #{existingSchedule.batch_number}
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">Submitted {fmtDate(existingSchedule.submitted_at)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600">
+                <div><span className="text-slate-400">Name: </span>{existingSchedule.first_name} {existingSchedule.last_name}{existingSchedule.other_names ? ` ${existingSchedule.other_names}` : ""}</div>
+                <div><span className="text-slate-400">Region: </span>{existingSchedule.region}</div>
+                <div><span className="text-slate-400">Email: </span>{existingSchedule.personal_email}</div>
+                <div><span className="text-slate-400">Cohort: </span>{existingSchedule.cohort_display_name}</div>
+                {existingSchedule.aws_account_id && <div><span className="text-slate-400">AWS Account: </span>{existingSchedule.aws_account_id}</div>}
+                {existingSchedule.aws_cert_email && <div><span className="text-slate-400">AWS Cert Email: </span>{existingSchedule.aws_cert_email}</div>}
+              </div>
+            </div>
+          )}
+
+          {!existingSchedule && !showSchedForm && (
+            <div className="px-5 py-6 text-center">
+              <p className="text-sm text-slate-400">You have not registered for an exam yet.</p>
+            </div>
+          )}
+
+          {/* Registration form */}
+          {showSchedForm && (
+            <div className="px-5 py-4 bg-orange-50 border-t border-orange-100">
+              <form onSubmit={handleSubmitSchedule} className="space-y-4">
+                <h3 className="text-xs font-semibold text-slate-700">Exam Registration Details</h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">First Name *</label>
+                    <input name="first_name" type="text" required defaultValue={existingSchedule?.first_name ?? defaultFirstName}
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Last Name *</label>
+                    <input name="last_name" type="text" required defaultValue={existingSchedule?.last_name ?? defaultLastName}
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Other Names</label>
+                    <input name="other_names" type="text" defaultValue={existingSchedule?.other_names ?? ""}
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Personal Email</label>
+                    <input type="text" value={personalEmail} readOnly
+                      className="w-full border border-slate-100 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50 text-slate-400 cursor-not-allowed" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Cohort</label>
+                    <input type="text" value={cohortName ?? ""} readOnly
+                      className="w-full border border-slate-100 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50 text-slate-400 cursor-not-allowed" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Region *</label>
+                    <select name="region" required defaultValue={existingSchedule?.region ?? ""}
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300">
+                      <option value="">Select region…</option>
+                      {GHANA_REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">AWS Account ID</label>
+                    <input name="aws_account_id" type="text" defaultValue={existingSchedule?.aws_account_id ?? ""}
+                      placeholder="e.g. 123456789012"
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">AWS Certification Email</label>
+                    <input name="aws_cert_email" type="email" defaultValue={existingSchedule?.aws_cert_email ?? ""}
+                      placeholder="email used for AWS certifications"
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Canvas Graduation Status</label>
+                    <input type="text" value="Graduated" readOnly
+                      className="w-full border border-slate-100 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50 text-slate-400 cursor-not-allowed" />
+                  </div>
+                </div>
+
+                {schedError && <p className="text-xs text-red-600">{schedError}</p>}
+                <div className="flex gap-2">
+                  <button type="submit" disabled={isPending}
+                    className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+                    {isPending ? "Submitting…" : existingSchedule ? "Update Registration" : "Submit Registration"}
+                  </button>
+                  <button type="button" onClick={() => { setShowSchedForm(false); setSchedError(""); }}
+                    className="px-4 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
         </div>
-      </div>
+      )}
 
       {/* Official exam results */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">

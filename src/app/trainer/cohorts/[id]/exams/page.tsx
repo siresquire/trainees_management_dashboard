@@ -26,12 +26,13 @@ export default async function ExamsPage({
   const svc         = createServiceClient();
 
   // Round 2: scores + vouchers + pooled vouchers + outcomes + completion summary
-  //          + same-level cohort IDs + exam appointments — all independent, all fire in parallel
+  //          + same-level cohort IDs + exam appointments + exam schedules — all independent
   const [
     [{ data: scores }, { data: vouchers }, { data: pooledVouchers }, { data: outcomes }],
     [{ data: completionSummary }, { data: currentCohortTasks }],
     { data: sameLevelCohorts },
     { data: appointmentsRaw },
+    { data: examSchedulesRaw },
   ] = await Promise.all([
     Promise.all([
       quizIds.length
@@ -55,6 +56,9 @@ export default async function ExamsPage({
     traineeIds.length
       ? svc.from("exam_appointments").select("trainee_id, voucher_id, exam_date, exam_time, exam_location").in("trainee_id", traineeIds).order("submitted_at", { ascending: false })
       : Promise.resolve({ data: [] as { trainee_id: string; voucher_id: string | null; exam_date: string; exam_time: string; exam_location: string }[] }),
+    traineeIds.length
+      ? svc.from("exam_schedules").select("id, trainee_id, first_name, last_name, other_names, personal_email, cohort_display_name, region, aws_account_id, aws_cert_email, canvas_grad_status, batch_number, voucher_issued, submitted_at").in("trainee_id", traineeIds)
+      : Promise.resolve({ data: [] as { id: string; trainee_id: string; first_name: string; last_name: string; other_names: string | null; personal_email: string; cohort_display_name: string; region: string; aws_account_id: string | null; aws_cert_email: string | null; canvas_grad_status: string; batch_number: number | null; voucher_issued: boolean; submitted_at: string }[] }),
   ]);
 
   const totalLabTasks = (currentCohortTasks ?? []).filter((t) => t.task_type === "lab").length;
@@ -273,6 +277,22 @@ export default async function ExamsPage({
         examDate:     a.exam_date,
         examTime:     a.exam_time,
         examLocation: a.exam_location,
+      }))}
+      examSchedules={(examSchedulesRaw ?? []).map((s) => ({
+        id:                 s.id,
+        traineeId:          s.trainee_id,
+        firstName:          s.first_name as string,
+        lastName:           s.last_name as string,
+        otherNames:         (s.other_names as string | null) ?? null,
+        personalEmail:      s.personal_email as string,
+        cohortDisplayName:  s.cohort_display_name as string,
+        region:             s.region as string,
+        awsAccountId:       (s.aws_account_id as string | null) ?? null,
+        awsCertEmail:       (s.aws_cert_email as string | null) ?? null,
+        canvasGradStatus:   s.canvas_grad_status as string,
+        batchNumber:        (s.batch_number as number | null) ?? null,
+        voucherIssued:      s.voucher_issued as boolean,
+        submittedAt:        s.submitted_at as string,
       }))}
     />
   );

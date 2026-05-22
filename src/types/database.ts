@@ -42,6 +42,7 @@ export type Database = {
           stipend_threshold_pct:                   number
           practitioner_university_threshold_mins:  number
           practitioner_external_threshold_mins:    number
+          exam_passing_score:                      number
           updated_at:                              string
           updated_by:                              string | null
         }
@@ -52,6 +53,7 @@ export type Database = {
           stipend_threshold_pct?:                   number
           practitioner_university_threshold_mins?:  number
           practitioner_external_threshold_mins?:    number
+          exam_passing_score?:                      number
           updated_at?:                              string
           updated_by?:                              string | null
         }
@@ -62,10 +64,78 @@ export type Database = {
           stipend_threshold_pct?:                   number
           practitioner_university_threshold_mins?:  number
           practitioner_external_threshold_mins?:    number
+          exam_passing_score?:                      number
           updated_at?:                              string
           updated_by?:                              string | null
         }
         Relationships: []
+      }
+      exam_schedules: {
+        Row: {
+          id:                   string
+          trainee_id:           string
+          cohort_id:            string
+          first_name:           string
+          last_name:            string
+          other_names:          string | null
+          personal_email:       string
+          cohort_display_name:  string
+          region:               string
+          aws_account_id:       string | null
+          aws_cert_email:       string | null
+          canvas_grad_status:   string
+          batch_number:         number | null
+          voucher_issued:       boolean
+          voucher_issued_at:    string | null
+          voucher_issued_by:    string | null
+          submitted_at:         string
+          updated_at:           string
+        }
+        Insert: {
+          id?:                   string
+          trainee_id:            string
+          cohort_id:             string
+          first_name:            string
+          last_name:             string
+          other_names?:          string | null
+          personal_email:        string
+          cohort_display_name:   string
+          region:                string
+          aws_account_id?:       string | null
+          aws_cert_email?:       string | null
+          canvas_grad_status?:   string
+          batch_number?:         number | null
+          voucher_issued?:       boolean
+          voucher_issued_at?:    string | null
+          voucher_issued_by?:    string | null
+          submitted_at?:         string
+          updated_at?:           string
+        }
+        Update: {
+          id?:                   string
+          trainee_id?:           string
+          cohort_id?:            string
+          first_name?:           string
+          last_name?:            string
+          other_names?:          string | null
+          personal_email?:       string
+          cohort_display_name?:  string
+          region?:               string
+          aws_account_id?:       string | null
+          aws_cert_email?:       string | null
+          canvas_grad_status?:   string
+          batch_number?:         number | null
+          voucher_issued?:       boolean
+          voucher_issued_at?:    string | null
+          voucher_issued_by?:    string | null
+          submitted_at?:         string
+          updated_at?:           string
+        }
+        Relationships: [
+          { foreignKeyName: "exam_schedules_trainee_id_fkey"; columns: ["trainee_id"]; referencedRelation: "trainees"; referencedColumns: ["id"] },
+          { foreignKeyName: "exam_schedules_cohort_id_fkey"; columns: ["cohort_id"]; referencedRelation: "cohorts"; referencedColumns: ["id"] },
+          { foreignKeyName: "exam_schedules_voucher_issued_by_fkey"; columns: ["voucher_issued_by"]; referencedRelation: "profiles"; referencedColumns: ["id"] },
+        ]
       }
       admin_voucher_pool: {
         Row: {

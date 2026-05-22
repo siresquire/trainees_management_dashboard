@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "@/actions/admin-vouchers";
 import { revokeVoucher, setVoucherDeadline, saveAdminThresholds, saveAttendanceThresholds } from "@/actions/admin-settings";
+import { bulkMarkVoucherIssued } from "@/actions/exam-schedules";
 import { fetchAdminWeeklyStats, type WeeklyStatRow } from "@/actions/admin-stats";
 import type { SessionInfo, TaskInfo, QuizInfo, VoucherRow, RevokedVoucherRow, ThresholdSettings } from "./page";
 
@@ -36,6 +37,8 @@ export type AdminTraineeRow = {
   issuedVoucherId:  string | null;
   voucherDeadline:  string | null;
   examAppointment:  { examDate: string; examTime: string; examLocation: string } | null;
+  scheduleId:            string | null;
+  scheduleVoucherIssued: boolean;
   weeklyStats:      Array<{ weekNumber: number | null; labsDone: number; kcsDone: number; sessionsAttended: number }>;
   quizScores:       Array<{ quizId: string; score: number }>;
 };
@@ -256,7 +259,7 @@ export default function AdminDashboardClient({
   }
 
   function selectAllApproved() {
-    setSelectedIds(new Set(filtered.filter((r) => r.examApproved && !r.issuedVoucher).map((r) => r.traineeId)));
+    setSelectedIds(new Set(filtered.filter((r) => r.scheduleId && !r.scheduleVoucherIssued).map((r) => r.traineeId)));
   }
 
   function handleUpload() {
@@ -267,6 +270,20 @@ export default function AdminDashboardClient({
       if (res.error) { toast(res.error, "error"); return; }
       toast(`Uploaded ${res.inserted} codes (${res.duplicates} duplicates skipped)`);
       setVoucherText(""); setShowUpload(false); router.refresh();
+    });
+  }
+
+  function handleMarkVoucherIssued() {
+    const scheduleIds = filtered
+      .filter((r) => selectedIds.has(r.traineeId) && r.scheduleId)
+      .map((r) => r.scheduleId!);
+    if (!scheduleIds.length) { toast("No selected trainees have exam registrations", "error"); return; }
+    startTransition(async () => {
+      const res = await bulkMarkVoucherIssued(scheduleIds, true);
+      if (res.error) { toast(res.error, "error"); return; }
+      toast(`Voucher marked as issued for ${scheduleIds.length} trainee${scheduleIds.length !== 1 ? "s" : ""}`);
+      setSelectedIds(new Set());
+      router.refresh();
     });
   }
 
@@ -533,6 +550,10 @@ export default function AdminDashboardClient({
                 <>
                   <span className="text-xs text-slate-500">{selectedCount} selected</span>
                   <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 underline">Clear</button>
+                  <button onClick={handleMarkVoucherIssued} disabled={isPending}
+                    className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg whitespace-nowrap">
+                    Mark Voucher Issued ({selectedCount})
+                  </button>
                   <div className="flex items-center gap-2">
                     <select value={issueExamType} onChange={(e) => setIssueExamType(e.target.value as ExamType)}
                       className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none">
@@ -549,7 +570,7 @@ export default function AdminDashboardClient({
               ) : (
                 <button onClick={selectAllApproved}
                   className="text-xs font-medium text-purple-600 hover:text-purple-700 border border-purple-200 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-lg whitespace-nowrap">
-                  Select all approved
+                  Select registered (no voucher)
                 </button>
               )}
               <span className="ml-auto text-xs text-slate-400">
@@ -614,10 +635,7 @@ export default function AdminDashboardClient({
                     {currentThreshold.dataBundlePct > 0 && <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 whitespace-nowrap">Data Bundle</th>}
                     {currentThreshold.stipendPct     > 0 && <th className="text-left px-3 py-3 text-xs font-medium text-slate-500">Stipend</th>}
                     <th className="text-left px-3 py-3 text-xs font-medium text-slate-500">Quiz Scores</th>
-                    <th className="text-left px-3 py-3 text-xs font-medium text-slate-500">Exam Approved</th>
-                    <th className="text-left px-3 py-3 text-xs font-medium text-slate-500">Voucher</th>
-                    <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 whitespace-nowrap">Deadline</th>
-                    <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 whitespace-nowrap">Appointment</th>
+                    <th className="text-center px-3 py-3 text-xs font-medium text-slate-500 w-20">Voucher</th>
                     <th className="px-3 py-3 w-8" />
                   </tr>
                 </thead>
@@ -675,55 +693,11 @@ export default function AdminDashboardClient({
                           <button onClick={() => setQuizPanelRow(r)} className="text-xs text-purple-600 hover:text-purple-700 underline underline-offset-2">View</button>
                         </td>
                         <td className="px-3 py-3 text-center">
-                          {r.examApproved
-                            ? <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-label="Exam approved"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          {r.scheduleVoucherIssued
+                            ? <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-label="Voucher issued"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             : <span className="text-xs text-slate-300">—</span>}
                         </td>
-                        <td className="px-3 py-3">
-                          {r.issuedVoucher ? (
-                            revealedCodes.has(r.traineeId) ? (
-                              <button onClick={() => setRevealedCodes((p) => { const n = new Set(p); n.delete(r.traineeId); return n; })} title="Click to hide">
-                                <code className="text-xs font-mono text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded select-all">{r.issuedVoucher}</code>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => setRevealedCodes((p) => new Set([...p, r.traineeId]))}
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors group"
-                                title="Click to reveal code"
-                              >
-                                <code className="font-mono text-slate-300">{r.issuedVoucher.slice(0, 4)}••••</code>
-                                <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                              </button>
-                            )
-                          ) : (
-                            <span className="text-xs text-slate-300">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          {r.issuedVoucherId ? (
-                            <button onClick={() => openDeadlinePicker(r)}
-                              className={`text-xs underline underline-offset-2 whitespace-nowrap ${r.voucherDeadline ? "text-amber-600 hover:text-amber-700" : "text-slate-400 hover:text-slate-600"}`}>
-                              {r.voucherDeadline ? new Date(r.voucherDeadline).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Set deadline"}
-                            </button>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </td>
-                        <td className="px-3 py-3">
-                          {r.examAppointment ? (
-                            <div className="text-[10px] text-slate-600 space-y-0.5">
-                              <div>{r.examAppointment.examDate}</div>
-                              <div className="text-slate-400">{r.examAppointment.examTime}</div>
-                              <div className="text-slate-400 max-w-[140px] truncate" title={r.examAppointment.examLocation}>{r.examAppointment.examLocation}</div>
-                            </div>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </td>
-                        <td className="px-3 py-3">
-                          {r.issuedVoucherId && (
-                            <button onClick={() => handleRevoke(r)} disabled={isPending} title="Revoke voucher"
-                              className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40 text-xs">
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                            </button>
-                          )}
-                        </td>
+                        <td className="px-3 py-3" />
                       </tr>
                     );
                   })}

@@ -9,7 +9,7 @@ export default async function TraineeExamsPage() {
 
   const { data: trainee } = await supabase
     .from("trainees")
-    .select("id, full_name, cohort_id, status, show_readiness, cohorts(name, level)")
+    .select("id, full_name, personal_email, cohort_id, status, show_readiness, graduated, cohorts(name, level)")
     .eq("user_id", user.id)
     .eq("status", "active")
     .is("deleted_at", null)
@@ -28,38 +28,33 @@ export default async function TraineeExamsPage() {
 
   const [
     { data: quizzes },
-    { data: myVouchers },
     { data: myOutcomes },
+    { data: examSchedule },
   ] = await Promise.all([
     supabase.from("exam_quizzes")
       .select("id, quiz_name, focus_type, focus_label, week_number, quiz_date, max_score")
       .eq("cohort_id", trainee.cohort_id)
       .order("created_at", { ascending: true }),
-    supabase.from("vouchers")
-      .select("id, exam_type, issued_date, attempt_no, voucher_code, deadline, revoked_at")
-      .eq("trainee_id", trainee.id)
-      .is("revoked_at", null)
-      .order("created_at", { ascending: true }),
     supabase.from("exam_outcomes")
       .select("id, exam_type, actual_score, outcome, exam_date, attempt_no, notes, self_reported")
       .eq("trainee_id", trainee.id)
       .order("attempt_no", { ascending: true }),
+    createServiceClient()
+      .from("exam_schedules")
+      .select("id, first_name, last_name, other_names, personal_email, cohort_display_name, region, aws_account_id, aws_cert_email, canvas_grad_status, batch_number, voucher_issued, submitted_at")
+      .eq("trainee_id", trainee.id)
+      .maybeSingle(),
   ]);
 
   const quizIds = (quizzes ?? []).map((q) => q.id);
 
-  const [{ data: myScores }, { data: allScores }, { data: myAppointments }] = await Promise.all([
+  const [{ data: myScores }, { data: allScores }] = await Promise.all([
     quizIds.length
       ? supabase.from("exam_scores").select("quiz_id, score, attempt_no, uploaded_at").eq("trainee_id", trainee.id).in("quiz_id", quizIds)
       : Promise.resolve({ data: [] as { quiz_id: string; score: number; attempt_no: number; uploaded_at: string }[] }),
     quizIds.length
       ? supabase.from("exam_scores").select("quiz_id, trainee_id, score").in("quiz_id", quizIds)
       : Promise.resolve({ data: [] as { quiz_id: string; trainee_id: string; score: number }[] }),
-    createServiceClient()
-      .from("exam_appointments")
-      .select("id, voucher_id, exam_date, exam_time, exam_location, submitted_at")
-      .eq("trainee_id", trainee.id)
-      .order("submitted_at", { ascending: false }),
   ]);
 
   // Best score per quiz
@@ -94,10 +89,10 @@ export default async function TraineeExamsPage() {
   }
   const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
 
-  // Which vouchers already have an appointment submitted?
-  const appointedVoucherIds = new Set(
-    (myAppointments ?? []).map((a) => a.voucher_id).filter(Boolean) as string[]
-  );
+  // Parse first/last name from full_name for pre-fill
+  const nameParts = (trainee.full_name ?? "").trim().split(/\s+/);
+  const defaultFirstName = nameParts[0] ?? "";
+  const defaultLastName  = nameParts.slice(1).join(" ") || "";
 
   return (
     <TraineeExamsClient
@@ -106,6 +101,10 @@ export default async function TraineeExamsPage() {
       cohortName={cohort?.name ?? null}
       cohortLevel={cohort?.level ?? "practitioner"}
       showReadiness={(trainee.show_readiness ?? false) || (avgPct !== null && avgPct >= 65)}
+      graduated={trainee.graduated ?? false}
+      personalEmail={trainee.personal_email ?? ""}
+      defaultFirstName={defaultFirstName}
+      defaultLastName={defaultLastName}
       quizzes={(quizzes ?? []).map((q) => ({
         id:          q.id,
         quiz_name:   q.quiz_name,
@@ -119,15 +118,6 @@ export default async function TraineeExamsPage() {
       myRankMap={Object.fromEntries(myRankMap)}
       avgPct={avgPct}
       quizCount={pcts.length}
-      vouchers={(myVouchers ?? []).map((v, i) => ({
-        id:                 v.id,
-        exam_type:          v.exam_type as string,
-        issued_date:        v.issued_date as string,
-        attempt_no:         i + 1,
-        voucher_code:       (v.voucher_code as string | null) ?? null,
-        deadline:           (v.deadline as string | null) ?? null,
-        appointment_submitted: appointedVoucherIds.has(v.id),
-      }))}
       outcomes={(myOutcomes ?? []).map((o) => ({
         id:            o.id,
         exam_type:     o.exam_type as string,
@@ -138,6 +128,21 @@ export default async function TraineeExamsPage() {
         notes:         (o.notes as string | null) ?? null,
         self_reported: (o.self_reported as boolean) ?? false,
       }))}
+      existingSchedule={examSchedule ? {
+        id:                 examSchedule.id,
+        first_name:         examSchedule.first_name as string,
+        last_name:          examSchedule.last_name as string,
+        other_names:        (examSchedule.other_names as string | null) ?? null,
+        personal_email:     examSchedule.personal_email as string,
+        cohort_display_name: examSchedule.cohort_display_name as string,
+        region:             examSchedule.region as string,
+        aws_account_id:     (examSchedule.aws_account_id as string | null) ?? null,
+        aws_cert_email:     (examSchedule.aws_cert_email as string | null) ?? null,
+        canvas_grad_status: examSchedule.canvas_grad_status as string,
+        batch_number:       (examSchedule.batch_number as number | null) ?? null,
+        voucher_issued:     examSchedule.voucher_issued as boolean,
+        submitted_at:       examSchedule.submitted_at as string,
+      } : null}
     />
   );
 }

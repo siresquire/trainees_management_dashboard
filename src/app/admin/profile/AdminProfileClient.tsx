@@ -1,25 +1,39 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updateMyProfile, changeMyPassword } from "@/actions/profile";
+import { saveExamPassingScore } from "@/actions/admin-settings";
 import { toast } from "@/lib/toast";
 
 const inputCls =
   "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white";
+
+const LEVELS = ["practitioner", "associate", "professional"] as const;
 
 export default function AdminProfileClient({
   userId,
   fullName,
   email,
   role,
+  passingScores,
 }: {
-  userId:   string;
-  fullName: string;
-  email:    string;
-  role:     string;
+  userId:        string;
+  fullName:      string;
+  email:         string;
+  role:          string;
+  passingScores: Record<string, number>;
 }) {
+  const router = useRouter();
   const [profileState, profileAction, profilePending] = useActionState(updateMyProfile, null);
   const [pwState,      pwAction,      pwPending]      = useActionState(changeMyPassword, null);
+  const [isPending, startTransition] = useTransition();
+
+  const [scoreInputs, setScoreInputs] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const l of LEVELS) init[l] = String(passingScores[l] ?? 700);
+    return init;
+  });
 
   if (profileState?.success) toast("Profile updated");
   if (pwState?.success)      toast("Password changed");
@@ -73,6 +87,44 @@ export default function AdminProfileClient({
             {profilePending ? "Saving…" : "Save changes"}
           </button>
         </form>
+      </div>
+
+      {/* ── Exam passing score ── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Exam Passing Score</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Minimum score (out of 1000) required for a trainee to be marked as certified. AWS CCP default is 700.</p>
+        </div>
+        <div className="space-y-3">
+          {LEVELS.map((level) => (
+            <div key={level} className="flex items-center gap-4">
+              <label className="w-28 text-xs font-medium text-slate-600 capitalize">{level}</label>
+              <input
+                type="number" min="100" max="1000" step="10"
+                value={scoreInputs[level]}
+                onChange={(e) => setScoreInputs((p) => ({ ...p, [level]: e.target.value }))}
+                className="w-28 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  const n = parseInt(scoreInputs[level], 10);
+                  if (isNaN(n) || n < 100 || n > 1000) { toast("Score must be 100–1000", "error"); return; }
+                  startTransition(async () => {
+                    const res = await saveExamPassingScore(level, n);
+                    if (res.error) { toast(res.error, "error"); return; }
+                    toast(`Passing score for ${level} set to ${n}`);
+                    router.refresh();
+                  });
+                }}
+                className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg"
+              >
+                {isPending ? "Saving…" : "Save"}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Change password ── */}

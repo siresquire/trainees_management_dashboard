@@ -21,6 +21,7 @@ import {
   toggleExamApproval,
 } from "@/actions/exams";
 import { saveCohortThreshold } from "@/actions/cohorts";
+import { updateExamScheduleBatch } from "@/actions/exam-schedules";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,23 @@ type Outcome = {
   attempt_no: number;
   notes: string | null;
   self_reported: boolean;
+};
+
+type ExamScheduleEntry = {
+  id: string;
+  traineeId: string;
+  firstName: string;
+  lastName: string;
+  otherNames: string | null;
+  personalEmail: string;
+  cohortDisplayName: string;
+  region: string;
+  awsAccountId: string | null;
+  awsCertEmail: string | null;
+  canvasGradStatus: string;
+  batchNumber: number | null;
+  voucherIssued: boolean;
+  submittedAt: string;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -241,6 +259,7 @@ export default function ExamsClient({
   modelBundle,
   traineeFeatures,
   appointments,
+  examSchedules,
 }: {
   cohortId:        string;
   cohortLevel:     string;
@@ -255,6 +274,7 @@ export default function ExamsClient({
   modelBundle:     ModelBundle;
   traineeFeatures: TraineeFeatureStat[];
   appointments:    ExamAppointment[];
+  examSchedules:   ExamScheduleEntry[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -509,6 +529,48 @@ export default function ExamsClient({
   const [voucherExamType,  setVoucherExamType]  = useState<string>(EXAM_TYPES[0]);
   const [voucherCodeInput, setVoucherCodeInput] = useState("");
   const [officialError,    setOfficialError]    = useState("");
+
+  // Exam schedules state
+  const [scheduleMap] = useState(() => {
+    const m = new Map<string, ExamScheduleEntry>();
+    for (const s of examSchedules) m.set(s.traineeId, s);
+    return m;
+  });
+  const [editingBatchFor,  setEditingBatchFor]  = useState<string | null>(null); // scheduleId
+  const [batchInput,       setBatchInput]       = useState("");
+
+  function handleSaveBatch(scheduleId: string) {
+    const n = parseInt(batchInput, 10);
+    startTransition(async () => {
+      const res = await updateExamScheduleBatch(scheduleId, isNaN(n) ? null : n, `/trainer/cohorts/${cohortId}/exams`);
+      if (res.error) { toast(res.error, "error"); return; }
+      toast("Batch number saved");
+      setEditingBatchFor(null);
+      router.refresh();
+    });
+  }
+
+  function exportSchedulesCsv() {
+    if (!examSchedules.length) { toast("No exam registrations to export", "error"); return; }
+    const headers = ["Trainee ID", "First Name", "Last Name", "Other Names", "Personal Email", "Cohort", "Region", "AWS Account ID", "AWS Cert Email", "Canvas Grad Status", "Batch #", "Voucher Issued", "Submitted At"];
+    const rows = examSchedules.map((s) => {
+      const t = trainees.find((tr) => tr.id === s.traineeId);
+      return [
+        t?.serial_no ?? "", s.firstName, s.lastName, s.otherNames ?? "", s.personalEmail,
+        s.cohortDisplayName, s.region, s.awsAccountId ?? "", s.awsCertEmail ?? "",
+        s.canvasGradStatus, s.batchNumber ?? "", s.voucherIssued ? "Yes" : "No",
+        new Date(s.submittedAt).toLocaleDateString("en-GB"),
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `exam-registrations-${cohortId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
 
   function handleOpenIssue(traineeId: string) {
@@ -1087,6 +1149,98 @@ export default function ExamsClient({
               {officialError}
             </div>
           )}
+
+          {/* ── Exam Registrations ─────────────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700">Exam Registrations</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Submitted by graduated trainees. Set batch numbers below.</p>
+              </div>
+              <button
+                onClick={exportSchedulesCsv}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-600 rounded-lg"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                Export CSV
+              </button>
+            </div>
+            {examSchedules.length === 0 ? (
+              <div className="px-5 py-6 text-center">
+                <p className="text-sm text-slate-400">No exam registrations yet.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">#</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Region</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Personal Email</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">AWS Account</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-28">Batch #</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-24">Voucher</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Submitted</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {examSchedules.map((s) => {
+                      const t = trainees.find((tr) => tr.id === s.traineeId);
+                      return (
+                        <tr key={s.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-xs text-slate-400">{t?.serial_no ?? "—"}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
+                            {s.firstName} {s.lastName}
+                            {s.otherNames && <span className="text-slate-400 font-normal"> {s.otherNames}</span>}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-600">{s.region}</td>
+                          <td className="px-4 py-3 text-xs text-slate-600">{s.personalEmail}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500">{s.awsAccountId ?? "—"}</td>
+                          <td className="px-4 py-3">
+                            {editingBatchFor === s.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number" min="1" value={batchInput}
+                                  onChange={(e) => setBatchInput(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveBatch(s.id); if (e.key === "Escape") setEditingBatchFor(null); }}
+                                  className="w-16 border border-orange-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                                  autoFocus
+                                />
+                                <button onClick={() => handleSaveBatch(s.id)} disabled={isPending}
+                                  className="text-green-600 hover:text-green-700 text-xs font-medium">✓</button>
+                                <button onClick={() => setEditingBatchFor(null)}
+                                  className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setEditingBatchFor(s.id); setBatchInput(s.batchNumber ? String(s.batchNumber) : ""); }}
+                                className="text-xs text-slate-700 hover:text-orange-600 font-medium group flex items-center gap-1"
+                              >
+                                {s.batchNumber ? `Batch ${s.batchNumber}` : <span className="text-slate-300 italic">— set batch</span>}
+                                <svg className="w-3 h-3 opacity-0 group-hover:opacity-100 text-orange-500" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {s.voucherIssued ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                Issued
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-400">{fmtShortDate(s.submittedAt)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">

@@ -95,6 +95,7 @@ export default async function AdminDashboardPage() {
     { data: examQuizzes },
     { data: examScores },
     { data: appointmentsRaw },
+    { data: examSchedulesRaw },
   ] = await Promise.all([
     ownerIds.length
       ? svc.from("profiles").select("id, full_name").in("id", ownerIds)
@@ -126,6 +127,9 @@ export default async function AdminDashboardPage() {
     traineeIds.length
       ? svc.from("exam_appointments").select("trainee_id, exam_date, exam_time, exam_location").in("trainee_id", traineeIds).order("submitted_at", { ascending: false })
       : Promise.resolve({ data: [] as { trainee_id: string; exam_date: string; exam_time: string; exam_location: string }[] }),
+    traineeIds.length
+      ? svc.from("exam_schedules").select("id, trainee_id, voucher_issued").in("trainee_id", traineeIds)
+      : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_issued: boolean }[] }),
   ]);
 
   if (completionErr)  console.error("[AdminDashboard] get_admin_completion_summary failed:", completionErr.message);
@@ -224,12 +228,19 @@ export default async function AdminDashboardPage() {
 
   const cohortMap = new Map((cohorts ?? []).map((c) => [c.id, c]));
 
+  // Exam schedules — voucher_issued status per trainee
+  const scheduleByTrainee = new Map<string, { id: string; voucherIssued: boolean }>();
+  for (const s of examSchedulesRaw ?? []) {
+    scheduleByTrainee.set(s.trainee_id, { id: s.id, voucherIssued: s.voucher_issued as boolean });
+  }
+
   // ── Build rows ─────────────────────────────────────────────────────────────
   const rows: AdminTraineeRow[] = (trainees ?? []).map((t) => {
     const cohort        = cohortMap.get(t.cohort_id);
     const ownerId       = ownerIdByCohort.get(t.cohort_id);
     const cohortQuizzes = quizzesByCohort.get(t.cohort_id) ?? [];
     const vEntry        = voucherByTrainee.get(t.id);
+    const sEntry        = scheduleByTrainee.get(t.id);
 
     const labsDone        = labsDoneByTrainee.get(t.id) ?? 0;
     const kcsDone         = kcsDoneByTrainee.get(t.id) ?? 0;
@@ -263,6 +274,8 @@ export default async function AdminDashboardPage() {
       issuedVoucherId:  vEntry?.id   ?? null,
       voucherDeadline:  vEntry?.deadline ?? null,
       examAppointment:  appointmentByTrainee.get(t.id) ?? null,
+      scheduleId:          sEntry?.id           ?? null,
+      scheduleVoucherIssued: sEntry?.voucherIssued ?? false,
       weeklyStats:      [],
       quizScores:       cohortQuizzes
         .map((q) => ({ quizId: q.id, score: bestQuizScore.get(`${t.id}:${q.id}`) ?? null }))
