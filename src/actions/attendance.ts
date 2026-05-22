@@ -483,7 +483,8 @@ export async function updateAttendanceThresholds(
 
   const { error: updateErr } = await service
     .from("cohorts")
-    .update({ present_threshold_mins: present, partial_threshold_mins: partial } as Record<string, unknown>)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update({ present_threshold_mins: present, partial_threshold_mins: partial } as any)
     .eq("id", cohortId);
 
   if (updateErr) return { error: updateErr.message };

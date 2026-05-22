@@ -143,7 +143,8 @@ export async function saveAttendanceThresholds(
       practitioner_external_threshold_mins:   externalMins,
       updated_at: new Date().toISOString(),
       updated_by: profileId,
-    } as Record<string, unknown>)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
     .eq("level", "practitioner");
 
   if (error) return { error: error.message };
