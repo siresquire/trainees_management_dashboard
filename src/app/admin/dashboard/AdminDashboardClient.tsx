@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "@/actions/admin-vouchers";
 import { revokeVoucher, setVoucherDeadline, saveAdminThresholds, saveAttendanceThresholds } from "@/actions/admin-settings";
+import { fetchAdminWeeklyStats, type WeeklyStatRow } from "@/actions/admin-stats";
 import type { SessionInfo, TaskInfo, QuizInfo, VoucherRow, RevokedVoucherRow, ThresholdSettings } from "./page";
 
 export type AdminTraineeRow = {
@@ -21,6 +22,12 @@ export type AdminTraineeRow = {
   kcsTotal:         number;
   sessionsAttended: number;
   sessionsTotal:    number;
+  wk1to6LabsDone:          number;
+  wk1to6KcsDone:           number;
+  wk1to6SessionsAttended:  number;
+  wk1to6LabsTotal:         number;
+  wk1to6KcsTotal:          number;
+  wk1to6SessionsTotal:     number;
   cohortId:         string;
   cohortCode:       string;
   cohortLevel:      string;
@@ -112,6 +119,9 @@ export default function AdminDashboardClient({
   const [showRevoked,     setShowRevoked]     = useState(false);
   const [revealedCodes,   setRevealedCodes]   = useState<Set<string>>(new Set());
 
+  const [weekFilteredStats, setWeekFilteredStats] = useState<Map<string, WeeklyStatRow> | null>(null);
+  const [weekStatsLoading, setWeekStatsLoading] = useState(false);
+
   const weekPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!showWeekPicker) return;
@@ -123,6 +133,25 @@ export default function AdminDashboardClient({
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [showWeekPicker]);
+
+  // Fetch week-filtered done counts whenever the week filter changes
+  useEffect(() => {
+    if (weekFilter.size === 0) {
+      setWeekFilteredStats(null);
+      return;
+    }
+    const cohortIds = [...levelCohortIds];
+    const weeks     = [...weekFilter];
+    setWeekStatsLoading(true);
+    fetchAdminWeeklyStats(cohortIds, weeks).then((res) => {
+      if ("error" in res) { toast(res.error, "error"); setWeekStatsLoading(false); return; }
+      const map = new Map<string, WeeklyStatRow>();
+      for (const row of res.data) map.set(row.traineeId, row);
+      setWeekFilteredStats(map);
+      setWeekStatsLoading(false);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekFilter, level]);
 
   // Sync threshold inputs when level switches
   useEffect(() => {
@@ -183,20 +212,22 @@ export default function AdminDashboardClient({
   }, [allSessions, allTasks, weekFilter, levelCohortIds]);
 
   function getStats(r: AdminTraineeRow) {
-    // Weekly breakdown is no longer available (it was truncated by PostgREST).
-    // Always use pre-aggregated per-trainee totals for labs and KCs.
-    // The week filter still affects session counts via cohortWeekStats.
     if (!cohortWeekStats) {
-      return { labsDone: r.labsDone, labsTotal: r.labsTotal, kcsDone: r.kcsDone, kcsTotal: r.kcsTotal, sessionsAttended: r.sessionsAttended, sessionsTotal: r.sessionsTotal };
+      return {
+        labsDone: r.labsDone, labsTotal: r.labsTotal,
+        kcsDone:  r.kcsDone,  kcsTotal:  r.kcsTotal,
+        sessionsAttended: r.sessionsAttended, sessionsTotal: r.sessionsTotal,
+      };
     }
-    const stat = cohortWeekStats.get(r.cohortId);
+    const totals = cohortWeekStats.get(r.cohortId) ?? { labsTotal: 0, kcsTotal: 0, sessionsTotal: 0 };
+    const done   = weekFilteredStats?.get(r.traineeId);
     return {
-      labsDone:        r.labsDone,
-      labsTotal:       r.labsTotal,
-      kcsDone:         r.kcsDone,
-      kcsTotal:        r.kcsTotal,
-      sessionsAttended: r.sessionsAttended,
-      sessionsTotal:   stat?.sessionsTotal ?? 0,
+      labsDone:         done?.labsDone         ?? 0,
+      labsTotal:        totals.labsTotal,
+      kcsDone:          done?.kcsDone          ?? 0,
+      kcsTotal:         totals.kcsTotal,
+      sessionsAttended: done?.sessionsAttended ?? 0,
+      sessionsTotal:    totals.sessionsTotal,
     };
   }
 
@@ -217,6 +248,7 @@ export default function AdminDashboardClient({
     setTrainerFilter("");
     setCohortFilter("");
     setWeekFilter(new Set());
+    setWeekFilteredStats(null);
   }
 
   function toggleSelect(id: string) {
@@ -460,6 +492,7 @@ export default function AdminDashboardClient({
                 <div ref={weekPickerRef} className="relative">
                   <button onClick={() => setShowWeekPicker((v) => !v)}
                     className={`flex items-center gap-1.5 text-xs font-medium border rounded-lg px-3 py-1.5 transition-colors ${weekFilter.size > 0 ? "border-purple-300 bg-purple-50 text-purple-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>
+                    {weekStatsLoading ? <span className="w-3 h-3 rounded-full border-2 border-purple-400 border-t-transparent animate-spin inline-block" /> : null}
                     {weekLabel}
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
@@ -591,15 +624,19 @@ export default function AdminDashboardClient({
                 <tbody className="divide-y divide-slate-100">
                   {filtered.map((r) => {
                     const { labsDone, labsTotal, kcsDone, kcsTotal, sessionsAttended, sessionsTotal } = getStats(r);
-                    const labPct  = pct(labsDone, labsTotal);
-                    const kcPct   = pct(kcsDone,  kcsTotal);
                     const attPct  = pct(sessionsAttended, sessionsTotal);
-                    // Eligibility = min of the three rates (must meet threshold on all three)
-                    const lowestPct = (labPct !== null || kcPct !== null || attPct !== null)
-                      ? Math.min(labPct ?? Infinity, kcPct ?? Infinity, attPct ?? Infinity)
+
+                    // Data bundle: attendance only, for the currently-viewed weeks (or overall)
+                    const dbElig = eligibility(attPct, currentThreshold.dataBundlePct);
+
+                    // Stipend: min(att, labs, KCs) fixed to weeks 1-6 regardless of week filter
+                    const stipAttPct  = pct(r.wk1to6SessionsAttended, r.wk1to6SessionsTotal);
+                    const stipLabPct  = pct(r.wk1to6LabsDone,         r.wk1to6LabsTotal);
+                    const stipKcPct   = pct(r.wk1to6KcsDone,          r.wk1to6KcsTotal);
+                    const stipLowest  = (stipAttPct !== null && stipLabPct !== null && stipKcPct !== null)
+                      ? Math.min(stipAttPct, stipLabPct, stipKcPct)
                       : null;
-                    const dbElig  = eligibility(lowestPct, currentThreshold.dataBundlePct);
-                    const stipElig = eligibility(lowestPct, currentThreshold.stipendPct);
+                    const stipElig = eligibility(stipLowest, currentThreshold.stipendPct);
                     return (
                       <tr key={r.traineeId} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(r.traineeId) ? "bg-purple-50" : ""}`}>
                         <td className="px-4 py-3">

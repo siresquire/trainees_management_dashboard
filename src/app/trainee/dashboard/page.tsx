@@ -97,10 +97,10 @@ export default async function TraineeDashboard() {
       : null;
   const stipend2Eligible: boolean = !!trainee.graduated;
 
-  // Countdown: show when ≤7 days until end_date
+  // Countdown: show whenever end_date is set and cohort hasn't ended
   const msUntilEnd = cohort?.end_date ? new Date(cohort.end_date).getTime() - Date.now() : null;
   const daysUntilEnd = msUntilEnd !== null ? Math.ceil(msUntilEnd / (24 * 60 * 60 * 1000)) : null;
-  const showCountdown = daysUntilEnd !== null && daysUntilEnd >= 0 && daysUntilEnd <= 7;
+  const showCountdown = daysUntilEnd !== null && daysUntilEnd >= 0;
 
   // ── Overall stats ─────────────────────────────────────────────────────────
   const kcTasks   = tasks.filter((t) => t.task_type === "kc");
@@ -139,17 +139,35 @@ export default async function TraineeDashboard() {
         </div>
       )}
 
-      {/* Countdown banner (≤7 days until end_date) */}
+      {/* Countdown banner — visible for entire cohort duration */}
       {showCountdown && (
-        <div className={`rounded-2xl p-4 flex items-center gap-3 border ${daysUntilEnd === 0 ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
-          <svg className={`w-5 h-5 shrink-0 ${daysUntilEnd === 0 ? "text-red-500" : "text-amber-500"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className={`rounded-2xl p-4 flex items-center gap-3 border ${
+          daysUntilEnd === 0        ? "bg-red-50 border-red-200"   :
+          daysUntilEnd! <= 7        ? "bg-amber-50 border-amber-200" :
+                                      "bg-blue-50 border-blue-200"
+        }`}>
+          <svg className={`w-5 h-5 shrink-0 ${
+            daysUntilEnd === 0   ? "text-red-500"   :
+            daysUntilEnd! <= 7   ? "text-amber-500" :
+                                   "text-blue-500"
+          }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <p className={`text-sm font-semibold ${daysUntilEnd === 0 ? "text-red-800" : "text-amber-800"}`}>
-              {daysUntilEnd === 0 ? "Training ends today!" : `${daysUntilEnd} day${daysUntilEnd !== 1 ? "s" : ""} until end of training`}
+            <p className={`text-sm font-semibold ${
+              daysUntilEnd === 0   ? "text-red-800"   :
+              daysUntilEnd! <= 7   ? "text-amber-800" :
+                                     "text-blue-800"
+            }`}>
+              {daysUntilEnd === 0
+                ? "Training ends today!"
+                : `${daysUntilEnd} day${daysUntilEnd !== 1 ? "s" : ""} remaining in training`}
             </p>
-            <p className={`text-xs mt-0.5 ${daysUntilEnd === 0 ? "text-red-600" : "text-amber-600"}`}>
+            <p className={`text-xs mt-0.5 ${
+              daysUntilEnd === 0   ? "text-red-600"   :
+              daysUntilEnd! <= 7   ? "text-amber-600" :
+                                     "text-blue-600"
+            }`}>
               Make sure your labs, KCs, and attendance are up to date.
             </p>
           </div>

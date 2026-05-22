@@ -2441,6 +2441,15 @@ export type Database = {
           session_total: number
         }[]
       }
+      get_admin_weekly_stats: {
+        Args: { p_cohort_ids: string[]; p_week_numbers: number[] }
+        Returns: {
+          trainee_id:     string
+          lab_count:      number
+          kc_count:       number
+          attended_count: number
+        }[]
+      }
       get_cohort_completion_summary: {
         Args: { p_cohort_id: string }
         Returns: {

@@ -7,6 +7,7 @@ export type QuizInfo    = { id: string; cohortId: string; quizName: string; week
 export type VoucherRow        = { id: string; traineeId: string; voucherCode: string | null; deadline: string | null; revokedAt: string | null };
 export type RevokedVoucherRow = { id: string; traineeId: string; voucherCode: string | null; revokedAt: string; attemptNo: number };
 export type ThresholdSettings = { dataBundlePct: number; stipendPct: number; universityMins: number; externalMins: number };
+export type CohortWeekTotals  = { labsTotal: number; kcsTotal: number; sessionsTotal: number };
 
 export default async function AdminDashboardPage() {
   const svc = createServiceClient();
@@ -88,6 +89,7 @@ export default async function AdminDashboardPage() {
     { data: completionRows, error: completionErr },
     { data: attendanceRows, error: attendanceErr },
     { data: cohortStatsRows, error: cohortStatsErr },
+    { data: wk1to6Rows, error: wk1to6Err },
     { data: vouchersRaw },
     { data: revokedVouchersRaw },
     { data: examQuizzes },
@@ -106,6 +108,9 @@ export default async function AdminDashboardPage() {
     cohortIds.length
       ? svc.rpc("get_admin_cohort_stats", { p_cohort_ids: cohortIds })
       : Promise.resolve({ data: [] as { cohort_id: string; lab_total: number; kc_total: number; session_total: number }[], error: null }),
+    cohortIds.length
+      ? svc.rpc("get_admin_weekly_stats", { p_cohort_ids: cohortIds, p_week_numbers: [1,2,3,4,5,6] })
+      : Promise.resolve({ data: [] as { trainee_id: string; lab_count: number; kc_count: number; attended_count: number }[], error: null }),
     traineeIds.length
       ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, deadline, revoked_at").in("trainee_id", traineeIds).is("revoked_at", null).order("attempt_no", { ascending: false })
       : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; deadline: string | null; revoked_at: string | null }[] }),
@@ -123,9 +128,10 @@ export default async function AdminDashboardPage() {
       : Promise.resolve({ data: [] as { trainee_id: string; exam_date: string; exam_time: string; exam_location: string }[] }),
   ]);
 
-  if (completionErr)  console.error("[AdminDashboard] get_admin_completion_summary failed — run supabase db push:", completionErr.message);
-  if (attendanceErr)  console.error("[AdminDashboard] get_admin_attendance_summary failed — run supabase db push:", attendanceErr.message);
-  if (cohortStatsErr) console.error("[AdminDashboard] get_admin_cohort_stats failed — run supabase db push:", cohortStatsErr.message);
+  if (completionErr)  console.error("[AdminDashboard] get_admin_completion_summary failed:", completionErr.message);
+  if (attendanceErr)  console.error("[AdminDashboard] get_admin_attendance_summary failed:", attendanceErr.message);
+  if (cohortStatsErr) console.error("[AdminDashboard] get_admin_cohort_stats failed:", cohortStatsErr.message);
+  if (wk1to6Err)      console.error("[AdminDashboard] get_admin_weekly_stats (wk1-6) failed:", wk1to6Err.message);
 
   // ── Aggregate ──────────────────────────────────────────────────────────────
   const profileNameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
@@ -144,10 +150,8 @@ export default async function AdminDashboardPage() {
   }
 
   // Per-trainee totals from RPCs — one row per trainee, no week breakdown.
-  // The old per-week version returned ~6 000 rows for 11 cohorts and was silently
-  // truncated to ~1 000 by PostgREST, leaving most trainees with labsDone = 0.
-  const labsDoneByTrainee      = new Map<string, number>();
-  const kcsDoneByTrainee       = new Map<string, number>();
+  const labsDoneByTrainee         = new Map<string, number>();
+  const kcsDoneByTrainee          = new Map<string, number>();
   const sessionsAttendedByTrainee = new Map<string, number>();
 
   for (const row of completionRows ?? []) {
@@ -155,10 +159,36 @@ export default async function AdminDashboardPage() {
     labsDoneByTrainee.set(tid, (labsDoneByTrainee.get(tid) ?? 0) + Number(row.lab_count));
     kcsDoneByTrainee.set(tid,  (kcsDoneByTrainee.get(tid)  ?? 0) + Number(row.kc_count));
   }
-
   for (const row of attendanceRows ?? []) {
     const tid = String(row.trainee_id);
     sessionsAttendedByTrainee.set(tid, (sessionsAttendedByTrainee.get(tid) ?? 0) + Number(row.attended_count));
+  }
+
+  // Weeks 1-6 done counts per trainee (for stipend eligibility — fixed window, not user-filtered)
+  const wk1to6LabsDoneByTrainee      = new Map<string, number>();
+  const wk1to6KcsDoneByTrainee       = new Map<string, number>();
+  const wk1to6AttendedByTrainee      = new Map<string, number>();
+  for (const row of wk1to6Rows ?? []) {
+    const tid = String(row.trainee_id);
+    wk1to6LabsDoneByTrainee.set(tid, Number(row.lab_count));
+    wk1to6KcsDoneByTrainee.set(tid,  Number(row.kc_count));
+    wk1to6AttendedByTrainee.set(tid, Number(row.attended_count));
+  }
+
+  // Weeks 1-6 totals per cohort (denominator for stipend eligibility)
+  const wk1to6LabsTotalByCohort      = new Map<string, number>();
+  const wk1to6KcsTotalByCohort       = new Map<string, number>();
+  const wk1to6SessionsTotalByCohort  = new Map<string, number>();
+  for (const t of tasks ?? []) {
+    if (t.week_number < 1 || t.week_number > 6) continue;
+    const cid = t.cohort_id;
+    if (t.task_type === "lab") wk1to6LabsTotalByCohort.set(cid, (wk1to6LabsTotalByCohort.get(cid) ?? 0) + 1);
+    if (t.task_type === "kc")  wk1to6KcsTotalByCohort.set(cid,  (wk1to6KcsTotalByCohort.get(cid)  ?? 0) + 1);
+  }
+  for (const s of sessions ?? []) {
+    if (s.week_number == null || s.week_number < 1 || s.week_number > 6) continue;
+    const cid = s.cohort_id;
+    wk1to6SessionsTotalByCohort.set(cid, (wk1to6SessionsTotalByCohort.get(cid) ?? 0) + 1);
   }
 
   // Vouchers — latest non-revoked per trainee
@@ -219,6 +249,12 @@ export default async function AdminDashboardPage() {
       kcsTotal:         kcTotalByCohort.get(t.cohort_id) ?? 0,
       sessionsAttended,
       sessionsTotal:    sessionsByCohort.get(t.cohort_id) ?? 0,
+      wk1to6LabsDone:         wk1to6LabsDoneByTrainee.get(t.id)     ?? 0,
+      wk1to6KcsDone:          wk1to6KcsDoneByTrainee.get(t.id)      ?? 0,
+      wk1to6SessionsAttended: wk1to6AttendedByTrainee.get(t.id)     ?? 0,
+      wk1to6LabsTotal:        wk1to6LabsTotalByCohort.get(t.cohort_id)     ?? 0,
+      wk1to6KcsTotal:         wk1to6KcsTotalByCohort.get(t.cohort_id)      ?? 0,
+      wk1to6SessionsTotal:    wk1to6SessionsTotalByCohort.get(t.cohort_id) ?? 0,
       cohortId:         t.cohort_id,
       cohortCode:       cohort?.code_name ?? cohort?.name ?? "—",
       cohortLevel:      cohort?.level ?? "practitioner",
