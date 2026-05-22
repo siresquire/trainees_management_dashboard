@@ -40,6 +40,7 @@ type WeekTaskCount = { week_number: number; kc: number; lab: number };
 
 type Props = {
   cohortId: string;
+  cohortCodeName: string;
   cohortStartDate: string;
   cohortTrainingWeeks: number;
   liveTrainees: Trainee[];
@@ -80,8 +81,19 @@ const ATT_STATUS_BADGE: Record<string, string> = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+function downloadCsv(rows: string[][], filename: string) {
+  const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+  const csv = rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement("a"), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function TraineesTable({
   cohortId,
+  cohortCodeName,
   cohortStartDate: _cohortStartDate,
   cohortTrainingWeeks: _cohortTrainingWeeks,
   liveTrainees,
@@ -97,6 +109,7 @@ export default function TraineesTable({
   isPractitioner,
   isGraduatable,
 }: Props) {
+  const loginUrl = typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [searchQuery,   setSearchQuery]   = useState("");
 
@@ -273,13 +286,33 @@ export default function TraineesTable({
                 className={`text-xs font-medium px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
                   tempPassMode ? "bg-orange-500 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
                 }`}
-                title="Generate temporary passwords for trainees who have accounts"
+                title="Generate temporary passwords for trainees"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
                 Temp Passwords
               </button>
+              {liveTrainees.some((t) => t.temp_password && !t.temp_password_changed_at) && (
+                <button
+                  onClick={() => {
+                    const rows: string[][] = [
+                      ["Name", "Email", "Temp Password", "Login URL", "Cohort"],
+                      ...liveTrainees
+                        .filter((t) => t.temp_password && !t.temp_password_changed_at)
+                        .map((t) => [t.full_name, t.personal_email, t.temp_password!, loginUrl, cohortCodeName]),
+                    ];
+                    downloadCsv(rows, `${cohortCodeName}_login_details.csv`);
+                  }}
+                  className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  title="Export login details CSV for mail merge"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Export Logins
+                </button>
+              )}
               <RefreshButton />
             </div>
           </div>
@@ -583,7 +616,7 @@ export default function TraineesTable({
                 </div>
               ))}
             </div>
-            <div className="px-6 py-3 border-t border-slate-200 shrink-0">
+            <div className="px-6 py-3 border-t border-slate-200 shrink-0 flex items-center justify-between gap-3">
               <button
                 onClick={() => {
                   const text = passResults.filter((r) => r.password).map((r) => `${r.name}: ${r.password}`).join("\n");
@@ -596,6 +629,24 @@ export default function TraineesTable({
                 ) : (
                   <span className="text-slate-600 hover:text-orange-600">Copy all to clipboard</span>
                 )}
+              </button>
+              <button
+                onClick={() => {
+                  const emailById = new Map(liveTrainees.map((t) => [t.id, t.personal_email]));
+                  const rows: string[][] = [
+                    ["Name", "Email", "Temp Password", "Login URL", "Cohort"],
+                    ...passResults
+                      .filter((r) => r.password)
+                      .map((r) => [r.name, emailById.get(r.id) ?? "", r.password!, loginUrl, cohortCodeName]),
+                  ];
+                  downloadCsv(rows, `${cohortCodeName}_temp_passwords.csv`);
+                }}
+                className="flex items-center gap-1.5 text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export CSV
               </button>
             </div>
           </div>

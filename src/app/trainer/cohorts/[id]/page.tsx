@@ -29,7 +29,7 @@ export default async function CohortTraineesPage({
     { data: attendanceSummaryRows },
     { data: weekBreakdownRows },
   ] = await Promise.all([
-    supabase.from("cohorts").select("level, has_index_numbers, start_date, training_weeks").eq("id", id).single(),
+    supabase.from("cohorts").select("level, has_index_numbers, start_date, training_weeks, code_name, name").eq("id", id).single(),
     supabase
       .from("trainees")
       .select("id, serial_no, full_name, personal_email, amalitech_email, status, user_id, graduated, deleted_at, temp_password, temp_password_changed_at")
@@ -143,6 +143,7 @@ export default async function CohortTraineesPage({
       {/* Trainees table (with week filter) */}
       <TraineesTable
         cohortId={id}
+        cohortCodeName={cohort?.code_name ?? cohort?.name ?? ""}
         cohortStartDate={cohort?.start_date ?? new Date().toISOString()}
         cohortTrainingWeeks={cohort?.training_weeks ?? 12}
         liveTrainees={liveTrainees}
