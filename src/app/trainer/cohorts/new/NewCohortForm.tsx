@@ -6,6 +6,15 @@ import Link from "next/link";
 
 type StaffMember = { id: string; full_name: string; role: string };
 
+const LEVEL_OPTIONS = [
+  { key: "practitioner_university", label: "Practitioner - University", level: "practitioner", subtype: "university" },
+  { key: "practitioner_external",   label: "Practitioner - External",   level: "practitioner", subtype: "external"   },
+  { key: "associate",               label: "Associate",                 level: "associate",    subtype: ""           },
+  { key: "devops",                  label: "NSPs cohort",               level: "devops",       subtype: ""           },
+] as const;
+
+type LevelKey = typeof LEVEL_OPTIONS[number]["key"];
+
 const EXAM_TYPE_OPTIONS: Record<string, { value: string; label: string }[]> = {
   associate: [
     { value: "SAA-C03", label: "SAA-C03 (Solutions Architect Associate)" },
@@ -21,16 +30,26 @@ export default function NewCohortForm({
   backHref = "/trainer/dashboard",
   assignableStaff,
   role = "trainer",
+  universityMins = 45,
+  externalMins   = 60,
 }: {
-  backHref?: string;
+  backHref?:        string;
   assignableStaff?: StaffMember[];
-  role?: string;
+  role?:            string;
+  universityMins?:  number;
+  externalMins?:    number;
 }) {
   const [state, action, isPending] = useActionState(createCohort, null);
-  const [selectedLevel, setSelectedLevel] = useState("");
+  const [selectedLevelKey, setSelectedLevelKey] = useState<LevelKey | "">("");
   const showAssign = assignableStaff && assignableStaff.length > 0;
   const isQC = role === "quiz_creator";
-  const examTypeOptions = EXAM_TYPE_OPTIONS[selectedLevel] ?? null;
+
+  const selectedOption = LEVEL_OPTIONS.find((o) => o.key === selectedLevelKey);
+  const examTypeOptions = selectedOption ? (EXAM_TYPE_OPTIONS[selectedOption.level] ?? null) : null;
+  const isPractitioner  = selectedOption?.level === "practitioner";
+  const thresholdMins   = selectedLevelKey === "practitioner_university" ? universityMins
+                        : selectedLevelKey === "practitioner_external"   ? externalMins
+                        : null;
 
   return (
     <div className="p-4 md:p-8 max-w-2xl">
@@ -126,20 +145,23 @@ export default function NewCohortForm({
               <input name="code_name" type="text" placeholder="e.g. GHACC62" className={inputCls} />
             </Field>
 
-            <Field label="Training level" name="level" error={state?.errors?.level?.[0]}>
+            {/* Level select — combined key drives hidden level + subtype inputs */}
+            <Field label="Training level" name="_level_key" error={state?.errors?.level?.[0]}>
               <select
-                name="level"
                 required
                 className={inputCls}
-                defaultValue=""
-                onChange={(e) => setSelectedLevel(e.target.value)}
+                value={selectedLevelKey}
+                onChange={(e) => setSelectedLevelKey(e.target.value as LevelKey)}
               >
                 <option value="" disabled>Select level…</option>
-                <option value="practitioner">Practitioner (Canvas)</option>
-                <option value="associate">Associate (Whizlabs)</option>
-                <option value="devops">DevOps NSP</option>
+                {LEVEL_OPTIONS.map((o) => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
               </select>
             </Field>
+            {/* Actual values submitted to the action */}
+            <input type="hidden" name="level"          value={selectedOption?.level   ?? ""} />
+            <input type="hidden" name="cohort_subtype" value={selectedOption?.subtype ?? ""} />
 
             {examTypeOptions && (
               <Field
@@ -157,30 +179,37 @@ export default function NewCohortForm({
               </Field>
             )}
 
-            <Field label="Start date" name="start_date" error={state?.errors?.start_date?.[0]}>
-              <input name="start_date" type="date" required className={inputCls} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Start date" name="start_date" error={state?.errors?.start_date?.[0]}>
+                <input name="start_date" type="date" required className={inputCls} />
+              </Field>
+              <Field label="End date" name="end_date" error={state?.errors?.end_date?.[0]}>
+                <input name="end_date" type="date" required className={inputCls} />
+              </Field>
+            </div>
+
+            <Field label="Exam prep weeks" name="exam_prep_weeks" error={state?.errors?.exam_prep_weeks?.[0]} hint="Weeks at the end of the cohort dedicated to exam preparation">
+              <input name="exam_prep_weeks" type="number" min={0} max={6} defaultValue={2} required className={inputCls} />
             </Field>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Training weeks" name="training_weeks" error={state?.errors?.training_weeks?.[0]}>
-                <input name="training_weeks" type="number" min={1} max={52} defaultValue={9} required className={inputCls} />
-              </Field>
-              <Field label="Exam prep weeks" name="exam_prep_weeks" error={state?.errors?.exam_prep_weeks?.[0]}>
-                <input name="exam_prep_weeks" type="number" min={0} max={6} defaultValue={2} required className={inputCls} />
-              </Field>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-slate-700 mb-3">Attendance thresholds</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Present threshold (%)" name="attendance_present_pct" error={state?.errors?.attendance_present_pct?.[0]} hint="≥ this = present (green)">
-                  <input name="attendance_present_pct" type="number" min={1} max={100} defaultValue={75} required className={inputCls} />
-                </Field>
-                <Field label="Partial threshold (%)" name="attendance_partial_pct" error={state?.errors?.attendance_partial_pct?.[0]} hint="≥ this = partial (amber)">
-                  <input name="attendance_partial_pct" type="number" min={1} max={100} defaultValue={50} required className={inputCls} />
-                </Field>
+            {/* Attendance threshold — read-only, auto-populated from admin settings */}
+            {isPractitioner && thresholdMins !== null && (
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+                <p className="text-sm font-medium text-slate-700 mb-1">Attendance threshold</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-slate-900">{thresholdMins} min</span>
+                  <span className="text-xs text-slate-400">required to count as "Present"</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Set by Admin — applies to all {selectedLevelKey === "practitioner_university" ? "University" : "External"} cohorts</p>
               </div>
-            </div>
+            )}
+            {/* Hidden threshold inputs consumed by the action */}
+            {isPractitioner && thresholdMins !== null && (
+              <input type="hidden" name="present_threshold_mins" value={thresholdMins} />
+            )}
+            {/* Legacy % fields kept as hidden defaults; attendance processing will be updated separately */}
+            <input type="hidden" name="attendance_present_pct" value="75" />
+            <input type="hidden" name="attendance_partial_pct" value="50" />
 
             <Field label="Canvas Course ID" name="canvas_course_id" hint="Required for Practitioner cohorts">
               <input name="canvas_course_id" type="text" placeholder="e.g. 4166" className={inputCls} />

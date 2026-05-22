@@ -8,19 +8,17 @@ type AttResult = { error?: string };
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Threshold-based status for Practitioner cohorts only.
+ * Threshold-based status for Practitioner cohorts only (minutes-based).
  * For Associate / NSP: any duration > 0 means "present" — use statusFromDuration().
  */
 function computeStatus(
   durationMins: number,
-  totalMins: number,
-  presentPct: number,
-  partialPct: number,
+  presentMins: number,
+  partialMins: number,
 ): "present" | "partial" | "brief" | "absent" {
-  if (totalMins <= 0 || durationMins <= 0) return "absent";
-  const pct = (durationMins / totalMins) * 100;
-  if (pct >= presentPct) return "present";
-  if (pct >= partialPct) return "partial";
+  if (durationMins <= 0) return "absent";
+  if (durationMins >= presentMins) return "present";
+  if (durationMins >= partialMins) return "partial";
   return "brief";
 }
 
@@ -30,14 +28,13 @@ function computeStatus(
  */
 function statusFromDuration(
   durationMins: number,
-  totalMins: number,
   isPractitioner: boolean,
-  presentPct: number,
-  partialPct: number,
+  presentMins: number,
+  partialMins: number,
 ): "present" | "partial" | "brief" | "absent" {
   if (durationMins <= 0) return "absent";
   if (!isPractitioner) return "present";
-  return computeStatus(durationMins, totalMins, presentPct, partialPct);
+  return computeStatus(durationMins, presentMins, partialMins);
 }
 
 function parseCsvLine(line: string): string[] {
@@ -111,14 +108,14 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("id, level, attendance_present_pct, attendance_partial_pct")
+    .select("id, level, present_threshold_mins, partial_threshold_mins")
     .eq("id", cohortId)
     .single();
   if (!cohort) return { error: "Cohort not found" };
 
   const isPractitioner = cohort.level === "practitioner";
-  const presentPct     = cohort.attendance_present_pct ?? 75;
-  const partialPct     = cohort.attendance_partial_pct  ?? 50;
+  const presentMins    = (cohort as Record<string, unknown>).present_threshold_mins as number ?? 45;
+  const partialMins    = (cohort as Record<string, unknown>).partial_threshold_mins  as number ?? 25;
 
   const text = await file.text();
   const rows = parseCsv(text).filter((r) => r.some((c) => c.length > 0));
@@ -230,7 +227,7 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
       trainee_id:         t.id,
       duration_mins:      durationMins,
       total_session_mins: totalMins,
-      status:             statusFromDuration(durationMins, totalMins, isPractitioner, presentPct, partialPct),
+      status:             statusFromDuration(durationMins, isPractitioner, presentMins, partialMins),
     };
   });
 
@@ -303,13 +300,13 @@ export async function saveManualAttendance(formData: FormData): Promise<AttResul
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("level, attendance_present_pct, attendance_partial_pct")
+    .select("level, present_threshold_mins, partial_threshold_mins")
     .eq("id", cohortId)
     .single();
 
   const isPractitioner = cohort?.level === "practitioner";
-  const presentPct     = cohort?.attendance_present_pct ?? 75;
-  const partialPct     = cohort?.attendance_partial_pct  ?? 50;
+  const presentMins    = (cohort as Record<string, unknown>)?.present_threshold_mins as number ?? 45;
+  const partialMins    = (cohort as Record<string, unknown>)?.partial_threshold_mins  as number ?? 25;
 
   const rows: {
     session_id: string; trainee_id: string;
@@ -328,7 +325,7 @@ export async function saveManualAttendance(formData: FormData): Promise<AttResul
       trainee_id:         traineeId,
       duration_mins:      dur,
       total_session_mins: totalMins,
-      status:             statusFromDuration(dur, totalMins, isPractitioner, presentPct, partialPct),
+      status:             statusFromDuration(dur, isPractitioner, presentMins, partialMins),
     });
   }
 
@@ -369,13 +366,13 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("level, attendance_present_pct, attendance_partial_pct")
+    .select("level, present_threshold_mins, partial_threshold_mins")
     .eq("id", cohortId)
     .single();
 
   const isPractitioner = cohort?.level === "practitioner";
-  const presentPct     = cohort?.attendance_present_pct ?? 75;
-  const partialPct     = cohort?.attendance_partial_pct  ?? 50;
+  const presentMins    = (cohort as Record<string, unknown>)?.present_threshold_mins as number ?? 45;
+  const partialMins    = (cohort as Record<string, unknown>)?.partial_threshold_mins  as number ?? 25;
 
   const text = await file.text();
   const rows = parseCsv(text).filter((r) => r.some((c) => c.length > 0));
@@ -421,7 +418,7 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
       trainee_id:         traineeId,
       duration_mins:      durationMins,
       total_session_mins: totalMins,
-      status:             statusFromDuration(durationMins, totalMins, isPractitioner, presentPct, partialPct),
+      status:             statusFromDuration(durationMins, isPractitioner, presentMins, partialMins),
     });
   }
 
@@ -444,8 +441,8 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
 
 export async function updateAttendanceThresholds(
   cohortId: string,
-  presentPct: number,
-  partialPct: number,
+  presentMins: number,
+  partialMins: number,
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -469,14 +466,13 @@ export async function updateAttendanceThresholds(
     if (!access) return { error: "Access denied" };
   }
 
-  const present = Math.min(100, Math.max(1, Math.round(presentPct)));
-  const partial = Math.min(100, Math.max(1, Math.round(partialPct)));
+  const present = Math.max(1, Math.round(presentMins));
+  const partial = Math.max(1, Math.round(partialMins));
 
   if (partial >= present) return { error: "Partial threshold must be less than Present threshold" };
 
   const service = createServiceClient();
 
-  // Fetch cohort level so we know whether to apply percentage thresholds
   const { data: cohort } = await service
     .from("cohorts")
     .select("level")
@@ -485,10 +481,9 @@ export async function updateAttendanceThresholds(
 
   const isPractitioner = cohort?.level === "practitioner";
 
-  // Save new thresholds
   const { error: updateErr } = await service
     .from("cohorts")
-    .update({ attendance_present_pct: present, attendance_partial_pct: partial })
+    .update({ present_threshold_mins: present, partial_threshold_mins: partial } as Record<string, unknown>)
     .eq("id", cohortId);
 
   if (updateErr) return { error: updateErr.message };
@@ -509,10 +504,10 @@ export async function updateAttendanceThresholds(
 
     if (rows?.length) {
       const updates = rows.map((r) => ({
-        id:                r.id,
-        session_id:        r.session_id,
-        trainee_id:        r.trainee_id,
-        status:            statusFromDuration(r.duration_mins, r.total_session_mins, isPractitioner, present, partial),
+        id:         r.id,
+        session_id: r.session_id,
+        trainee_id: r.trainee_id,
+        status:     statusFromDuration(r.duration_mins, isPractitioner, present, partial),
       }));
       for (let i = 0; i < updates.length; i += 500) {
         await service.from("attendance").upsert(updates.slice(i, i + 500));

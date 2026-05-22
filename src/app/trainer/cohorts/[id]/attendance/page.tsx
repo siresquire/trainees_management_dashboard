@@ -13,7 +13,7 @@ export default async function AttendancePage({
   if (!user) redirect("/login");
 
   const [{ data: cohort }, { data: trainees }, { data: sessions }] = await Promise.all([
-    supabase.from("cohorts").select("level, attendance_present_pct, attendance_partial_pct").eq("id", id).single(),
+    supabase.from("cohorts").select("level, present_threshold_mins, partial_threshold_mins").eq("id", id).single(),
     supabase.from("trainees").select("id, serial_no, full_name, personal_email, amalitech_email").eq("cohort_id", id).is("deleted_at", null).eq("status", "active").order("serial_no", { ascending: true, nullsFirst: false }),
     supabase.from("sessions").select("id, platform, topic, started_at, total_duration_mins, week_number, session_number, created_at").eq("cohort_id", id).order("started_at", { ascending: false }),
   ]);
@@ -31,8 +31,8 @@ export default async function AttendancePage({
     <AttendanceClient
       cohortId={id}
       cohortLevel={cohort?.level ?? "practitioner"}
-      presentPct={cohort?.attendance_present_pct ?? 75}
-      partialPct={cohort?.attendance_partial_pct  ?? 50}
+      presentMins={(cohort as Record<string, unknown>)?.present_threshold_mins as number ?? 45}
+      partialMins={(cohort as Record<string, unknown>)?.partial_threshold_mins  as number ?? 25}
       trainees={trainees ?? []}
       sessions={(sessions ?? []).map((s) => ({
         ...s,

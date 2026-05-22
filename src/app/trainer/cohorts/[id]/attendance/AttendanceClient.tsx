@@ -46,8 +46,8 @@ type AttendanceRow = {
 type Props = {
   cohortId:     string;
   cohortLevel:  string;
-  presentPct:   number;
-  partialPct:   number;
+  presentMins:  number;
+  partialMins:  number;
   trainees:     Trainee[];
   sessions:     Session[];
   attendance:   AttendanceRow[];
@@ -84,17 +84,14 @@ function fmtDate(iso: string) {
 
 function clientStatus(
   durationMins: number,
-  totalMins: number,
   isPractitioner: boolean,
-  presentPct: number,
-  partialPct: number,
+  presentMins: number,
+  partialMins: number,
 ): string {
   if (durationMins <= 0) return "absent";
   if (!isPractitioner) return "present";
-  if (totalMins <= 0) return "absent";
-  const pct = (durationMins / totalMins) * 100;
-  if (pct >= presentPct) return "present";
-  if (pct >= partialPct) return "partial";
+  if (durationMins >= presentMins) return "present";
+  if (durationMins >= partialMins) return "partial";
   return "brief";
 }
 
@@ -103,8 +100,8 @@ function clientStatus(
 export default function AttendanceClient({
   cohortId,
   cohortLevel,
-  presentPct,
-  partialPct,
+  presentMins,
+  partialMins,
   trainees,
   sessions,
   attendance,
@@ -132,8 +129,8 @@ export default function AttendanceClient({
 
   // Threshold editing
   const [editThresholds,  setEditThresholds]  = useState(false);
-  const [editPresentPct,  setEditPresentPct]  = useState(presentPct);
-  const [editPartialPct,  setEditPartialPct]  = useState(partialPct);
+  const [editPresentMins, setEditPresentMins] = useState(presentMins);
+  const [editPartialMins, setEditPartialMins] = useState(partialMins);
   const [thresholdError,  setThresholdError]  = useState("");
 
   // Refs for file inputs (so we can reset them)
@@ -296,15 +293,15 @@ export default function AttendanceClient({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <span className="text-xs text-slate-600">
-              Present threshold: <span className="font-semibold text-slate-800">{presentPct}%</span>
+              Present threshold: <span className="font-semibold text-slate-800">{presentMins} min</span>
             </span>
             <span className="text-xs text-slate-600">
-              Partial threshold: <span className="font-semibold text-slate-800">{partialPct}%</span>
+              Partial threshold: <span className="font-semibold text-slate-800">{partialMins} min</span>
             </span>
           </div>
           {!editThresholds && (
             <button
-              onClick={() => { setEditPresentPct(presentPct); setEditPartialPct(partialPct); setThresholdError(""); setEditThresholds(true); }}
+              onClick={() => { setEditPresentMins(presentMins); setEditPartialMins(partialMins); setThresholdError(""); setEditThresholds(true); }}
               className="text-slate-400 hover:text-slate-700 transition-colors"
               title="Edit thresholds"
             >
@@ -318,24 +315,22 @@ export default function AttendanceClient({
         {editThresholds && (
           <div className="mt-3 flex items-end gap-3 flex-wrap">
             <label className="block">
-              <span className="text-[10px] font-medium text-slate-500 block mb-1">Present %</span>
+              <span className="text-[10px] font-medium text-slate-500 block mb-1">Present (min)</span>
               <input
                 type="number"
                 min={1}
-                max={100}
-                value={editPresentPct}
-                onChange={(e) => setEditPresentPct(parseInt(e.target.value, 10) || 0)}
+                value={editPresentMins}
+                onChange={(e) => setEditPresentMins(parseInt(e.target.value, 10) || 0)}
                 className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
               />
             </label>
             <label className="block">
-              <span className="text-[10px] font-medium text-slate-500 block mb-1">Partial %</span>
+              <span className="text-[10px] font-medium text-slate-500 block mb-1">Partial (min)</span>
               <input
                 type="number"
                 min={1}
-                max={100}
-                value={editPartialPct}
-                onChange={(e) => setEditPartialPct(parseInt(e.target.value, 10) || 0)}
+                value={editPartialMins}
+                onChange={(e) => setEditPartialMins(parseInt(e.target.value, 10) || 0)}
                 className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
               />
             </label>
@@ -343,7 +338,7 @@ export default function AttendanceClient({
               onClick={() => {
                 setThresholdError("");
                 startTransition(async () => {
-                  const res = await updateAttendanceThresholds(cohortId, editPresentPct, editPartialPct);
+                  const res = await updateAttendanceThresholds(cohortId, editPresentMins, editPartialMins);
                   if (res.error) { setThresholdError(res.error); return; }
                   setEditThresholds(false);
                   refresh();
@@ -377,7 +372,7 @@ export default function AttendanceClient({
                 <input
                   name="week_number"
                   type="number"
-                  min={1}
+                  min={0}
                   required
                   placeholder="e.g. 10"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -442,7 +437,7 @@ export default function AttendanceClient({
                 <input
                   name="week_number"
                   type="number"
-                  min={1}
+                  min={0}
                   required
                   placeholder="e.g. 10"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -714,7 +709,7 @@ export default function AttendanceClient({
                             Or enter manually
                             {cohortLevel === "practitioner" && (
                               <span className="font-normal text-slate-400 ml-1">
-                                (≥{presentPct}% = present · ≥{partialPct}% = partial)
+                                (≥{presentMins} min = present · ≥{partialMins} min = partial)
                               </span>
                             )}
                             {cohortLevel !== "practitioner" && (
@@ -744,7 +739,7 @@ export default function AttendanceClient({
                                     const parsedDur = parseInt(localVal, 10);
                                     const liveStatus = isNaN(parsedDur)
                                       ? "absent"
-                                      : clientStatus(parsedDur, session.total_duration_mins, cohortLevel === "practitioner", presentPct, partialPct);
+                                      : clientStatus(parsedDur, cohortLevel === "practitioner", presentMins, partialMins);
 
                                     return (
                                       <tr key={t.id} className="hover:bg-slate-50">

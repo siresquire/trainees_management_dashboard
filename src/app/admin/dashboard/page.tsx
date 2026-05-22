@@ -6,7 +6,7 @@ export type TaskInfo    = { id: string; cohortId: string; taskType: string; week
 export type QuizInfo    = { id: string; cohortId: string; quizName: string; weekNumber: number; maxScore: number };
 export type VoucherRow        = { id: string; traineeId: string; voucherCode: string | null; deadline: string | null; revokedAt: string | null };
 export type RevokedVoucherRow = { id: string; traineeId: string; voucherCode: string | null; revokedAt: string; attemptNo: number };
-export type ThresholdSettings = { dataBundlePct: number; stipendPct: number };
+export type ThresholdSettings = { dataBundlePct: number; stipendPct: number; universityMins: number; externalMins: number };
 
 export default async function AdminDashboardPage() {
   const svc = createServiceClient();
@@ -23,12 +23,24 @@ export default async function AdminDashboardPage() {
   // Also load thresholds in parallel
   const { data: settingsRows } = await svc
     .from("admin_settings")
-    .select("level, data_bundle_threshold_pct, stipend_threshold_pct");
+    .select("level, data_bundle_threshold_pct, stipend_threshold_pct, practitioner_university_threshold_mins, practitioner_external_threshold_mins");
 
-  const settingsMap = new Map((settingsRows ?? []).map((r) => [r.level as string, r]));
+  const settingsMap = new Map((settingsRows ?? []).map((r) => [r.level as string, r as Record<string, unknown>]));
+  const pr = settingsMap.get("practitioner");
+  const as = settingsMap.get("associate");
   const thresholds: Record<string, ThresholdSettings> = {
-    practitioner: { dataBundlePct: Number(settingsMap.get("practitioner")?.data_bundle_threshold_pct ?? 0), stipendPct: Number(settingsMap.get("practitioner")?.stipend_threshold_pct ?? 0) },
-    associate:    { dataBundlePct: Number(settingsMap.get("associate")?.data_bundle_threshold_pct    ?? 0), stipendPct: Number(settingsMap.get("associate")?.stipend_threshold_pct    ?? 0) },
+    practitioner: {
+      dataBundlePct:  Number(pr?.data_bundle_threshold_pct ?? 0),
+      stipendPct:     Number(pr?.stipend_threshold_pct ?? 0),
+      universityMins: Number(pr?.practitioner_university_threshold_mins ?? 45),
+      externalMins:   Number(pr?.practitioner_external_threshold_mins   ?? 60),
+    },
+    associate: {
+      dataBundlePct:  Number(as?.data_bundle_threshold_pct ?? 0),
+      stipendPct:     Number(as?.stipend_threshold_pct ?? 0),
+      universityMins: 45,
+      externalMins:   60,
+    },
   };
 
   if (!cohortIds.length) {

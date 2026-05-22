@@ -36,28 +36,34 @@ export type Database = {
     Tables: {
       admin_settings: {
         Row: {
-          id:                       string
-          level:                    string
-          data_bundle_threshold_pct: number
-          stipend_threshold_pct:     number
-          updated_at:               string
-          updated_by:               string | null
+          id:                                      string
+          level:                                   string
+          data_bundle_threshold_pct:               number
+          stipend_threshold_pct:                   number
+          practitioner_university_threshold_mins:  number
+          practitioner_external_threshold_mins:    number
+          updated_at:                              string
+          updated_by:                              string | null
         }
         Insert: {
-          id?:                       string
-          level:                     string
-          data_bundle_threshold_pct?: number
-          stipend_threshold_pct?:    number
-          updated_at?:               string
-          updated_by?:               string | null
+          id?:                                      string
+          level:                                    string
+          data_bundle_threshold_pct?:               number
+          stipend_threshold_pct?:                   number
+          practitioner_university_threshold_mins?:  number
+          practitioner_external_threshold_mins?:    number
+          updated_at?:                              string
+          updated_by?:                              string | null
         }
         Update: {
-          id?:                       string
-          level?:                    string
-          data_bundle_threshold_pct?: number
-          stipend_threshold_pct?:    number
-          updated_at?:               string
-          updated_by?:               string | null
+          id?:                                      string
+          level?:                                   string
+          data_bundle_threshold_pct?:               number
+          stipend_threshold_pct?:                   number
+          practitioner_university_threshold_mins?:  number
+          practitioner_external_threshold_mins?:    number
+          updated_at?:                              string
+          updated_by?:                              string | null
         }
         Relationships: []
       }
@@ -483,6 +489,7 @@ export type Database = {
           canvas_api_token_encrypted: string | null
           canvas_course_id: string | null
           code_name: string | null
+          cohort_subtype: string | null
           created_at: string
           created_by: string
           end_date: string | null
@@ -495,7 +502,9 @@ export type Database = {
           id: string
           level: Database["public"]["Enums"]["cohort_level"]
           name: string
+          partial_threshold_mins: number
           platform: Database["public"]["Enums"]["cohort_platform"]
+          present_threshold_mins: number
           start_date: string
           status: Database["public"]["Enums"]["cohort_status"]
           training_weeks: number
@@ -508,6 +517,7 @@ export type Database = {
           canvas_api_token_encrypted?: string | null
           canvas_course_id?: string | null
           code_name?: string | null
+          cohort_subtype?: string | null
           created_at?: string
           created_by: string
           end_date?: string | null
@@ -520,7 +530,9 @@ export type Database = {
           id?: string
           level: Database["public"]["Enums"]["cohort_level"]
           name: string
+          partial_threshold_mins?: number
           platform: Database["public"]["Enums"]["cohort_platform"]
+          present_threshold_mins?: number
           start_date: string
           status?: Database["public"]["Enums"]["cohort_status"]
           training_weeks: number
@@ -533,6 +545,7 @@ export type Database = {
           canvas_api_token_encrypted?: string | null
           canvas_course_id?: string | null
           code_name?: string | null
+          cohort_subtype?: string | null
           created_at?: string
           created_by?: string
           end_date?: string | null
@@ -545,7 +558,9 @@ export type Database = {
           id?: string
           level?: Database["public"]["Enums"]["cohort_level"]
           name?: string
+          partial_threshold_mins?: number
           platform?: Database["public"]["Enums"]["cohort_platform"]
+          present_threshold_mins?: number
           start_date?: string
           status?: Database["public"]["Enums"]["cohort_status"]
           training_weeks?: number

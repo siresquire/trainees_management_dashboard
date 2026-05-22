@@ -12,11 +12,13 @@ const TrainerCohortSchema = z.object({
   name:                    z.string().min(1, "Name is required"),
   code_name:               z.string().optional(),
   level:                   z.enum(["practitioner", "associate", "devops"]),
+  cohort_subtype:          z.string().optional(),
   exam_type:               z.enum(["CCP", "SAA-C03", "DVA-C02", "SAP-C02", "DOP-C02"]).optional(),
   institution:             z.string().optional(),
   start_date:              z.string().min(1, "Start date is required"),
-  training_weeks:          z.coerce.number().int().min(1).max(52),
+  end_date:                z.string().min(1, "End date is required"),
   exam_prep_weeks:         z.coerce.number().int().min(0).max(6),
+  present_threshold_mins:  z.coerce.number().int().min(1).optional(),
   attendance_present_pct:  z.coerce.number().int().min(1).max(100),
   attendance_partial_pct:  z.coerce.number().int().min(1).max(100),
   canvas_course_id:        z.string().optional(),
@@ -117,19 +119,21 @@ export async function createCohort(
 
   // ── Trainer / Super Admin path ────────────────────────────────────────────
   const raw = {
-    name:                   formData.get("name"),
-    code_name:              formData.get("code_name") || undefined,
-    level:                  formData.get("level"),
-    exam_type:              formData.get("exam_type") || undefined,
-    institution:            formData.get("institution") || undefined,
-    start_date:             formData.get("start_date"),
-    training_weeks:         formData.get("training_weeks"),
-    exam_prep_weeks:        formData.get("exam_prep_weeks"),
-    attendance_present_pct: formData.get("attendance_present_pct"),
-    attendance_partial_pct: formData.get("attendance_partial_pct"),
-    canvas_course_id:       formData.get("canvas_course_id") || undefined,
-    has_index_numbers:      formData.get("has_index_numbers") === "1",
-    assigned_trainer_id:    formData.get("assigned_trainer_id") || undefined,
+    name:                    formData.get("name"),
+    code_name:               formData.get("code_name") || undefined,
+    level:                   formData.get("level"),
+    cohort_subtype:          formData.get("cohort_subtype") || undefined,
+    exam_type:               formData.get("exam_type") || undefined,
+    institution:             formData.get("institution") || undefined,
+    start_date:              formData.get("start_date"),
+    end_date:                formData.get("end_date"),
+    exam_prep_weeks:         formData.get("exam_prep_weeks"),
+    present_threshold_mins:  formData.get("present_threshold_mins") || undefined,
+    attendance_present_pct:  formData.get("attendance_present_pct"),
+    attendance_partial_pct:  formData.get("attendance_partial_pct"),
+    canvas_course_id:        formData.get("canvas_course_id") || undefined,
+    has_index_numbers:       formData.get("has_index_numbers") === "1",
+    assigned_trainer_id:     formData.get("assigned_trainer_id") || undefined,
   };
 
   const parsed = TrainerCohortSchema.safeParse(raw);
@@ -139,18 +143,30 @@ export async function createCohort(
 
   const data = parsed.data;
 
+  // Auto-calculate training_weeks from date range
+  const startMs = new Date(data.start_date).getTime();
+  const endMs   = new Date(data.end_date).getTime();
+  if (endMs <= startMs) return { error: "End date must be after start date" };
+  const training_weeks = Math.max(1, Math.ceil((endMs - startMs) / (7 * 24 * 60 * 60 * 1000)));
+
+  // Resolve subtype: empty string → null
+  const cohort_subtype = data.cohort_subtype || null;
+
   const { data: cohort, error: cohortError } = await supabase
     .from("cohorts")
     .insert({
       name:                   data.name,
       code_name:              data.code_name ?? null,
       level:                  data.level,
+      cohort_subtype,
       exam_type:              data.exam_type ?? null,
       platform:               PLATFORM_MAP[data.level],
       institution:            data.institution ?? null,
       start_date:             data.start_date,
-      training_weeks:         data.training_weeks,
+      end_date:               data.end_date,
+      training_weeks,
       exam_prep_weeks:        data.exam_prep_weeks,
+      present_threshold_mins: data.present_threshold_mins ?? 45,
       attendance_present_pct: data.attendance_present_pct,
       attendance_partial_pct: data.attendance_partial_pct,
       canvas_course_id:       data.canvas_course_id ?? null,
@@ -389,6 +405,70 @@ export async function updateCohortCodeName(
   revalidateTag("cohorts", {});
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return { success: true };
+}
+
+// ── Update cohort settings (metadata) ────────────────────────────────────────
+
+export async function updateCohortSettings(
+  cohortId: string,
+  data: {
+    name:                  string;
+    start_date:            string;
+    end_date:              string;
+    exam_prep_weeks:       number;
+    cohort_subtype:        string | null;
+    present_threshold_mins?: number;
+  }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", user.id).single();
+
+  if (profile?.role !== "super_admin") {
+    const { data: access } = await supabase
+      .from("cohort_access")
+      .select("role")
+      .eq("cohort_id", cohortId)
+      .eq("trainer_id", user.id)
+      .maybeSingle();
+    if (!access) return { error: "Not authorised to edit this cohort" };
+  }
+
+  const name = data.name.trim();
+  if (!name) return { error: "Cohort name is required" };
+
+  const startMs = new Date(data.start_date).getTime();
+  const endMs   = new Date(data.end_date).getTime();
+  if (isNaN(startMs) || isNaN(endMs)) return { error: "Invalid date" };
+  if (endMs <= startMs) return { error: "End date must be after start date" };
+  const training_weeks = Math.max(1, Math.ceil((endMs - startMs) / (7 * 24 * 60 * 60 * 1000)));
+
+  const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
+
+  const update: Record<string, unknown> = {
+    name,
+    start_date:      data.start_date,
+    end_date:        data.end_date,
+    training_weeks,
+    exam_prep_weeks: data.exam_prep_weeks,
+    cohort_subtype:  data.cohort_subtype || null,
+  };
+
+  if (isAdmin && data.present_threshold_mins != null) {
+    update.present_threshold_mins = data.present_threshold_mins;
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("cohorts").update(update).eq("id", cohortId);
+  if (error) return { error: error.message };
+
+  revalidateTag("cohorts", {});
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+  revalidatePath(`/trainer/cohorts/${cohortId}/settings`);
+  return {};
 }
 
 // ── Save analytics pass threshold ─────────────────────────────────────────────

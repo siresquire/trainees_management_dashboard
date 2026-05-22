@@ -15,7 +15,7 @@ const getCohortCached = unstable_cache(
     const svc = createServiceClient();
     const { data } = await svc
       .from("cohorts")
-      .select("id, name, code_name, level, platform, start_date, training_weeks, exam_prep_weeks, status, exam_type")
+      .select("id, name, code_name, level, cohort_subtype, platform, start_date, end_date, training_weeks, exam_prep_weeks, status, exam_type")
       .eq("id", id)
       .single();
     return data ?? null;
@@ -43,7 +43,15 @@ function getTabs(level: string) {
     { label: "Exams",      href: "/exams"      },
     { label: "Attendance", href: "/attendance" },
     { label: "Analytics",  href: "/analytics"  },
+    { label: "Settings",   href: "/settings"   },
   ];
+}
+
+function levelLabel(level: string, subtype: string | null): string {
+  if (level === "practitioner" && subtype === "university") return "Practitioner · University";
+  if (level === "practitioner" && subtype === "external")   return "Practitioner · External";
+  const map: Record<string, string> = { practitioner: "Practitioner", associate: "Associate", devops: "NSPs", general: "General" };
+  return map[level] ?? level;
 }
 
 export default async function CohortLayout({
@@ -139,8 +147,8 @@ export default async function CohortLayout({
 
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <h1 className="text-lg font-bold text-slate-900 md:text-xl">{cohort.name}</h1>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${LEVEL_BADGE[cohort.level] ?? "bg-slate-100 text-slate-600"}`}>
-            {cohort.level}
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${LEVEL_BADGE[cohort.level] ?? "bg-slate-100 text-slate-600"}`}>
+            {levelLabel(cohort.level, cohort.cohort_subtype)}
           </span>
           <StatusMenu
             cohortId={id}
@@ -153,6 +161,9 @@ export default async function CohortLayout({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4">
           <span className="text-xs text-slate-400">
             {new Date(cohort.start_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+            {cohort.end_date && (
+              <> – {new Date(cohort.end_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</>
+            )}
             {" · "}{cohort.training_weeks}w + {cohort.exam_prep_weeks}w prep
           </span>
           {/* Code name edit (owner or SA) */}

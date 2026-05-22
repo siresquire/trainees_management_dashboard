@@ -4,7 +4,7 @@ import { useState, useMemo, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { uploadAdminVoucherPool, issueVouchersToTrainees, type ExamType } from "@/actions/admin-vouchers";
-import { revokeVoucher, setVoucherDeadline, saveAdminThresholds } from "@/actions/admin-settings";
+import { revokeVoucher, setVoucherDeadline, saveAdminThresholds, saveAttendanceThresholds } from "@/actions/admin-settings";
 import type { SessionInfo, TaskInfo, QuizInfo, VoucherRow, RevokedVoucherRow, ThresholdSettings } from "./page";
 
 export type AdminTraineeRow = {
@@ -105,6 +105,8 @@ export default function AdminDashboardClient({
   const [showThresholds,  setShowThresholds]  = useState(false);
   const [dbPct,           setDbPct]           = useState(thresholds[level]?.dataBundlePct ?? 0);
   const [stipendPct,      setStipendPct]      = useState(thresholds[level]?.stipendPct ?? 0);
+  const [universityMins,  setUniversityMins]  = useState(thresholds["practitioner"]?.universityMins ?? 45);
+  const [externalMins,    setExternalMins]    = useState(thresholds["practitioner"]?.externalMins   ?? 60);
   const [deadlineRow,     setDeadlineRow]     = useState<AdminTraineeRow | null>(null);
   const [deadlineVal,     setDeadlineVal]     = useState("");
   const [showRevoked,     setShowRevoked]     = useState(false);
@@ -126,6 +128,8 @@ export default function AdminDashboardClient({
   useEffect(() => {
     setDbPct(thresholds[level]?.dataBundlePct ?? 0);
     setStipendPct(thresholds[level]?.stipendPct ?? 0);
+    setUniversityMins(thresholds["practitioner"]?.universityMins ?? 45);
+    setExternalMins(thresholds["practitioner"]?.externalMins   ?? 60);
   }, [level, thresholds]);
 
   // ── Derived lists ────────────────────────────────────────────────────────
@@ -272,6 +276,10 @@ export default function AdminDashboardClient({
     startTransition(async () => {
       const res = await saveAdminThresholds(level, dbPct, stipendPct);
       if (res.error) { toast(res.error, "error"); return; }
+      if (level === "practitioner") {
+        const res2 = await saveAttendanceThresholds(universityMins, externalMins);
+        if (res2.error) { toast(res2.error, "error"); return; }
+      }
       toast("Thresholds saved");
       setShowThresholds(false); router.refresh();
     });
@@ -352,6 +360,31 @@ export default function AdminDashboardClient({
                 />
               </div>
             </div>
+            {level === "practitioner" && (
+              <>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-5 mb-3">Attendance thresholds (minutes)</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">University cohorts (min)</label>
+                    <input
+                      type="number" min={1} value={universityMins}
+                      onChange={(e) => setUniversityMins(Number(e.target.value))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Minutes required for "Present"</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">External cohorts (min)</label>
+                    <input
+                      type="number" min={1} value={externalMins}
+                      onChange={(e) => setExternalMins(Number(e.target.value))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Minutes required for "Present"</p>
+                  </div>
+                </div>
+              </>
+            )}
             <div className="flex gap-3 mt-4">
               <button
                 onClick={handleSaveThresholds} disabled={isPending}
