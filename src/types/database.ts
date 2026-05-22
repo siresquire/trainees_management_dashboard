@@ -2434,6 +2434,15 @@ export type Database = {
           attended_count: number
         }[]
       }
+      get_admin_cohort_stats: {
+        Args: { p_cohort_ids: string[] }
+        Returns: {
+          cohort_id:     string
+          lab_total:     number
+          kc_total:      number
+          session_total: number
+        }[]
+      }
       get_cohort_completion_summary: {
         Args: { p_cohort_id: string }
         Returns: {

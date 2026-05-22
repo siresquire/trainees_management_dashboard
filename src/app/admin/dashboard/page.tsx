@@ -81,12 +81,13 @@ export default async function AdminDashboardPage() {
   const traineeIds = (trainees ?? []).map((t) => t.id);
 
   // ── Round 3: trainee-level data — all in parallel ─────────────────────────
-  // Completion and attendance use SECURITY DEFINER RPCs to bypass PostgREST
+  // All aggregated data uses SECURITY DEFINER RPCs to bypass the PostgREST
   // max-rows cap (which silently truncates direct SELECT queries at ~1000 rows).
   const [
     { data: profiles },
     { data: completionRows, error: completionErr },
     { data: attendanceRows, error: attendanceErr },
+    { data: cohortStatsRows, error: cohortStatsErr },
     { data: vouchersRaw },
     { data: revokedVouchersRaw },
     { data: examQuizzes },
@@ -102,6 +103,9 @@ export default async function AdminDashboardPage() {
     cohortIds.length
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
       : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[], error: null }),
+    cohortIds.length
+      ? svc.rpc("get_admin_cohort_stats", { p_cohort_ids: cohortIds })
+      : Promise.resolve({ data: [] as { cohort_id: string; lab_total: number; kc_total: number; session_total: number }[], error: null }),
     traineeIds.length
       ? svc.from("vouchers").select("id, trainee_id, voucher_code, attempt_no, deadline, revoked_at").in("trainee_id", traineeIds).is("revoked_at", null).order("attempt_no", { ascending: false })
       : Promise.resolve({ data: [] as { id: string; trainee_id: string; voucher_code: string | null; attempt_no: number; deadline: string | null; revoked_at: string | null }[] }),
@@ -119,23 +123,24 @@ export default async function AdminDashboardPage() {
       : Promise.resolve({ data: [] as { trainee_id: string; exam_date: string; exam_time: string; exam_location: string }[] }),
   ]);
 
-  if (completionErr) console.error("[AdminDashboard] get_admin_completion_summary failed — run supabase db push:", completionErr.message);
-  if (attendanceErr) console.error("[AdminDashboard] get_admin_attendance_summary failed — run supabase db push:", attendanceErr.message);
+  if (completionErr)  console.error("[AdminDashboard] get_admin_completion_summary failed — run supabase db push:", completionErr.message);
+  if (attendanceErr)  console.error("[AdminDashboard] get_admin_attendance_summary failed — run supabase db push:", attendanceErr.message);
+  if (cohortStatsErr) console.error("[AdminDashboard] get_admin_cohort_stats failed — run supabase db push:", cohortStatsErr.message);
 
   // ── Aggregate ──────────────────────────────────────────────────────────────
   const profileNameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
 
-  // Task totals per cohort
+  // Task and session totals per cohort — SECURITY DEFINER RPC bypasses PostgREST row cap.
+  // cohortStatsRows uses UNION ALL so a cohort_id can appear twice (once for tasks, once for
+  // sessions); accumulate rather than overwrite.
   const labTotalByCohort = new Map<string, number>();
   const kcTotalByCohort  = new Map<string, number>();
-  for (const t of tasks ?? []) {
-    if (t.task_type === "lab") labTotalByCohort.set(t.cohort_id, (labTotalByCohort.get(t.cohort_id) ?? 0) + 1);
-    if (t.task_type === "kc")  kcTotalByCohort.set(t.cohort_id,  (kcTotalByCohort.get(t.cohort_id)  ?? 0) + 1);
-  }
-
   const sessionsByCohort = new Map<string, number>();
-  for (const s of sessions ?? []) {
-    sessionsByCohort.set(s.cohort_id, (sessionsByCohort.get(s.cohort_id) ?? 0) + 1);
+  for (const stat of cohortStatsRows ?? []) {
+    const cid = String(stat.cohort_id);
+    labTotalByCohort.set(cid, (labTotalByCohort.get(cid) ?? 0) + Number(stat.lab_total));
+    kcTotalByCohort.set(cid,  (kcTotalByCohort.get(cid)  ?? 0) + Number(stat.kc_total));
+    sessionsByCohort.set(cid, (sessionsByCohort.get(cid) ?? 0) + Number(stat.session_total));
   }
 
   // Per-trainee weekly stats from RPCs
