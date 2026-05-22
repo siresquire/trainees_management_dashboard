@@ -183,15 +183,21 @@ export default function AdminDashboardClient({
   }, [allSessions, allTasks, weekFilter, levelCohortIds]);
 
   function getStats(r: AdminTraineeRow) {
+    // Weekly breakdown is no longer available (it was truncated by PostgREST).
+    // Always use pre-aggregated per-trainee totals for labs and KCs.
+    // The week filter still affects session counts via cohortWeekStats.
     if (!cohortWeekStats) {
       return { labsDone: r.labsDone, labsTotal: r.labsTotal, kcsDone: r.kcsDone, kcsTotal: r.kcsTotal, sessionsAttended: r.sessionsAttended, sessionsTotal: r.sessionsTotal };
     }
-    const ws = r.weeklyStats.filter((w) => w.weekNumber !== null && weekFilter.has(w.weekNumber));
-    const labsDone = ws.reduce((s, w) => s + w.labsDone, 0);
-    const kcsDone  = ws.reduce((s, w) => s + w.kcsDone, 0);
-    const sessionsAttended = ws.reduce((s, w) => s + w.sessionsAttended, 0);
     const stat = cohortWeekStats.get(r.cohortId);
-    return { labsDone, labsTotal: stat?.labsTotal ?? 0, kcsDone, kcsTotal: stat?.kcsTotal ?? 0, sessionsAttended, sessionsTotal: stat?.sessionsTotal ?? 0 };
+    return {
+      labsDone:        r.labsDone,
+      labsTotal:       r.labsTotal,
+      kcsDone:         r.kcsDone,
+      kcsTotal:        r.kcsTotal,
+      sessionsAttended: r.sessionsAttended,
+      sessionsTotal:   stat?.sessionsTotal ?? 0,
+    };
   }
 
   const poolCount = level === "associate" ? poolCountAssociate : poolCountPractitioner;

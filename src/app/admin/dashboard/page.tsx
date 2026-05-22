@@ -99,10 +99,10 @@ export default async function AdminDashboardPage() {
       : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
     cohortIds.length
       ? svc.rpc("get_admin_completion_summary", { p_cohort_ids: cohortIds })
-      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number; lab_count: number; kc_count: number }[], error: null }),
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; lab_count: number; kc_count: number }[], error: null }),
     cohortIds.length
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: cohortIds })
-      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; week_number: number | null; attended_count: number }[], error: null }),
+      : Promise.resolve({ data: [] as { trainee_id: string; cohort_id: string; attended_count: number }[], error: null }),
     cohortIds.length
       ? svc.rpc("get_admin_cohort_stats", { p_cohort_ids: cohortIds })
       : Promise.resolve({ data: [] as { cohort_id: string; lab_total: number; kc_total: number; session_total: number }[], error: null }),
@@ -143,29 +143,22 @@ export default async function AdminDashboardPage() {
     sessionsByCohort.set(cid, (sessionsByCohort.get(cid) ?? 0) + Number(stat.session_total));
   }
 
-  // Per-trainee weekly stats from RPCs
-  type WeekBucket = { labs: number; kcs: number; sessions: number };
-  const weeklyByTrainee = new Map<string, Map<string, WeekBucket>>();
+  // Per-trainee totals from RPCs — one row per trainee, no week breakdown.
+  // The old per-week version returned ~6 000 rows for 11 cohorts and was silently
+  // truncated to ~1 000 by PostgREST, leaving most trainees with labsDone = 0.
+  const labsDoneByTrainee      = new Map<string, number>();
+  const kcsDoneByTrainee       = new Map<string, number>();
+  const sessionsAttendedByTrainee = new Map<string, number>();
 
   for (const row of completionRows ?? []) {
     const tid = String(row.trainee_id);
-    const key = String(row.week_number);
-    const traineeMap = weeklyByTrainee.get(tid) ?? new Map<string, WeekBucket>();
-    const bucket = traineeMap.get(key) ?? { labs: 0, kcs: 0, sessions: 0 };
-    bucket.labs += Number(row.lab_count);
-    bucket.kcs  += Number(row.kc_count);
-    traineeMap.set(key, bucket);
-    weeklyByTrainee.set(tid, traineeMap);
+    labsDoneByTrainee.set(tid, (labsDoneByTrainee.get(tid) ?? 0) + Number(row.lab_count));
+    kcsDoneByTrainee.set(tid,  (kcsDoneByTrainee.get(tid)  ?? 0) + Number(row.kc_count));
   }
 
   for (const row of attendanceRows ?? []) {
     const tid = String(row.trainee_id);
-    const key = row.week_number !== null ? String(row.week_number) : "__null__";
-    const traineeMap = weeklyByTrainee.get(tid) ?? new Map<string, WeekBucket>();
-    const bucket = traineeMap.get(key) ?? { labs: 0, kcs: 0, sessions: 0 };
-    bucket.sessions += Number(row.attended_count);
-    traineeMap.set(key, bucket);
-    weeklyByTrainee.set(tid, traineeMap);
+    sessionsAttendedByTrainee.set(tid, (sessionsAttendedByTrainee.get(tid) ?? 0) + Number(row.attended_count));
   }
 
   // Vouchers — latest non-revoked per trainee
@@ -205,22 +198,12 @@ export default async function AdminDashboardPage() {
   const rows: AdminTraineeRow[] = (trainees ?? []).map((t) => {
     const cohort        = cohortMap.get(t.cohort_id);
     const ownerId       = ownerIdByCohort.get(t.cohort_id);
-    const traineeWeeks  = weeklyByTrainee.get(t.id);
     const cohortQuizzes = quizzesByCohort.get(t.cohort_id) ?? [];
     const vEntry        = voucherByTrainee.get(t.id);
 
-    const weeklyStats: AdminTraineeRow["weeklyStats"] = [];
-    let labsDone = 0, kcsDone = 0, sessionsAttended = 0;
-
-    if (traineeWeeks) {
-      for (const [key, bucket] of traineeWeeks) {
-        const weekNumber = key === "__null__" ? null : Number(key);
-        weeklyStats.push({ weekNumber, labsDone: bucket.labs, kcsDone: bucket.kcs, sessionsAttended: bucket.sessions });
-        labsDone        += bucket.labs;
-        kcsDone         += bucket.kcs;
-        sessionsAttended += bucket.sessions;
-      }
-    }
+    const labsDone        = labsDoneByTrainee.get(t.id) ?? 0;
+    const kcsDone         = kcsDoneByTrainee.get(t.id) ?? 0;
+    const sessionsAttended = sessionsAttendedByTrainee.get(t.id) ?? 0;
 
     return {
       traineeId:        t.id,
@@ -244,7 +227,7 @@ export default async function AdminDashboardPage() {
       issuedVoucherId:  vEntry?.id   ?? null,
       voucherDeadline:  vEntry?.deadline ?? null,
       examAppointment:  appointmentByTrainee.get(t.id) ?? null,
-      weeklyStats,
+      weeklyStats:      [],
       quizScores:       cohortQuizzes
         .map((q) => ({ quizId: q.id, score: bestQuizScore.get(`${t.id}:${q.id}`) ?? null }))
         .filter((qs): qs is { quizId: string; score: number } => qs.score !== null),

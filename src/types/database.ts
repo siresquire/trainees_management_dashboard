@@ -2418,11 +2418,10 @@ export type Database = {
       get_admin_completion_summary: {
         Args: { p_cohort_ids: string[] }
         Returns: {
-          trainee_id:  string
-          cohort_id:   string
-          week_number: number
-          lab_count:   number
-          kc_count:    number
+          trainee_id: string
+          cohort_id:  string
+          lab_count:  number
+          kc_count:   number
         }[]
       }
       get_admin_attendance_summary: {
@@ -2430,7 +2429,6 @@ export type Database = {
         Returns: {
           trainee_id:     string
           cohort_id:      string
-          week_number:    number | null
           attended_count: number
         }[]
       }
