@@ -462,7 +462,8 @@ export async function updateCohortSettings(
   }
 
   const svc = createServiceClient();
-  const { error } = await svc.from("cohorts").update(update).eq("id", cohortId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await svc.from("cohorts").update(update as any).eq("id", cohortId);
   if (error) return { error: error.message };
 
   revalidateTag("cohorts", {});
