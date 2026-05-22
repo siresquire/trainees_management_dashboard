@@ -15,6 +15,13 @@ export type SyncResult = { completions: number; skipped: number; newTrainees: nu
 // ── Helper: verify trainer owns the cohort ────────────────────────────────
 
 async function assertAccess(supabase: Awaited<ReturnType<typeof createClient>>, cohortId: string, userId: string) {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+  if (profile?.role === "super_admin") return;
+
   const { data } = await supabase
     .from("cohort_access")
     .select("id")
