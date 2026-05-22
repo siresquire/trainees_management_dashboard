@@ -71,7 +71,11 @@ export default async function TraineeProfilePage({
 
   const kcTasks  = tasks.filter((t) => t.task_type === "kc");
   const labTasks = tasks.filter((t) => t.task_type === "lab");
-  const kcsDone  = kcTasks.filter((t) => completionMap.has(t.id));
+  // KCs need score > 0 — a 0-score submission means the trainee submitted
+  // but got nothing right; it should not count as a completion.
+  // Labs are stored with score = null (canvas sync only upserts score=1 labs),
+  // so presence in the map is sufficient for labs.
+  const kcsDone  = kcTasks.filter((t) => (completionMap.get(t.id)?.score ?? 0) > 0);
   const labsDone = labTasks.filter((t) => completionMap.has(t.id));
   const avgKcScore =
     kcsDone.length > 0
