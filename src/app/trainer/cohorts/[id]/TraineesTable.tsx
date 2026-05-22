@@ -313,7 +313,7 @@ export default function TraineesTable({
                   Export Logins
                 </button>
               )}
-              <RefreshButton />
+              <RefreshButton cohortId={cohortId} />
             </div>
           </div>
 

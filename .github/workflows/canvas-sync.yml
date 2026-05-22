@@ -2,8 +2,8 @@ name: Canvas Daily Sync
 
 on:
   schedule:
-    - cron: "0 2 * * *"   # 02:00 UTC daily (adjust to suit Ghana timezone GMT+0)
-  workflow_dispatch:        # allow manual trigger from GitHub Actions UI
+    - cron: "0 5 * * 1-5"  # 05:00 UTC Mon–Fri (Ghana is GMT+0, so 5 AM)
+  workflow_dispatch:         # allow manual trigger from GitHub Actions UI
 
 jobs:
   sync:
@@ -27,6 +27,6 @@ jobs:
       - name: Run Canvas sync
         run: node scripts/canvas-sync.mjs
         env:
-          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ENCRYPTION_SECRET: ${{ secrets.ENCRYPTION_SECRET }}
