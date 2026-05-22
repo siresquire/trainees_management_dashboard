@@ -1,8 +1,11 @@
 const CANVAS_BASE = "https://awsrestart.instructure.com";
 
-/** Strip the " (123456)" Canvas ID suffix from assignment names */
+/** Strip the " (123456)" Canvas ID suffix and normalise punctuation variants */
 export function normaliseName(raw: string): string {
-  return raw.replace(/\s*\(\d+\)\s*$/, "").trim();
+  return raw
+    .replace(/\s*\(\d+\)\s*$/, "")  // strip trailing Canvas ID like " (596833)"
+    .replace(/–|—/g, "-")  // en-dash / em-dash → hyphen
+    .trim();
 }
 
 /** Paginate all pages of a Canvas API endpoint */
