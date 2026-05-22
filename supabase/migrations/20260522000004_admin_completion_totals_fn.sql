@@ -3,6 +3,9 @@
 -- ~6 000 rows for 11 cohorts — silently truncated at ~1 000 rows and leaving
 -- most trainees with labsDone=0 on the admin dashboard.
 -- This version returns ONE row per (trainee, cohort), capped at ~500 rows total.
+-- DROP required because PostgreSQL disallows changing a function's return type
+-- via CREATE OR REPLACE.
+DROP FUNCTION IF EXISTS get_admin_completion_summary(uuid[]);
 CREATE OR REPLACE FUNCTION get_admin_completion_summary(p_cohort_ids uuid[])
 RETURNS TABLE (
   trainee_id  uuid,
@@ -26,6 +29,7 @@ GRANT EXECUTE ON FUNCTION get_admin_completion_summary(uuid[]) TO authenticated,
 
 -- Same fix for attendance summary — old version returned one row per
 -- (trainee × week), which also hit the row cap when many cohorts are active.
+DROP FUNCTION IF EXISTS get_admin_attendance_summary(uuid[]);
 CREATE OR REPLACE FUNCTION get_admin_attendance_summary(p_cohort_ids uuid[])
 RETURNS TABLE (
   trainee_id     uuid,
