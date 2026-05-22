@@ -68,8 +68,8 @@ export default async function AdminDashboardPage() {
       .is("deleted_at", null)
       .in("status", ["active", "completed"])
       .order("serial_no", { ascending: true, nullsFirst: false }),
-    svc.from("cohort_week_tasks").select("id, cohort_id, task_type, week_number").in("cohort_id", cohortIds),
-    svc.from("sessions").select("id, cohort_id, week_number").in("cohort_id", cohortIds),
+    svc.from("cohort_week_tasks").select("id, cohort_id, task_type, week_number").in("cohort_id", cohortIds).limit(100000),
+    svc.from("sessions").select("id, cohort_id, week_number").in("cohort_id", cohortIds).limit(100000),
     Promise.all([
       svc.from("admin_voucher_pool").select("id", { count: "exact", head: true }).eq("level", "practitioner").eq("is_used", false),
       svc.from("admin_voucher_pool").select("id", { count: "exact", head: true }).eq("level", "associate").eq("is_used", false),
