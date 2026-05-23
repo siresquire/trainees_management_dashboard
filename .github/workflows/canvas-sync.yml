@@ -2,7 +2,7 @@ name: Canvas Daily Sync
 
 on:
   schedule:
-    - cron: "0 5 * * 1-5"  # 05:00 UTC Mon–Fri (Ghana is GMT+0, so 5 AM)
+    - cron: "0 5 * * *"  # 05:00 UTC daily (Ghana is GMT+0, so 5 AM)
   workflow_dispatch:         # allow manual trigger from GitHub Actions UI
 
 jobs:
