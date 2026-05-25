@@ -417,19 +417,17 @@ export async function softDeleteTrainee(
   return { success: true };
 }
 
-// ── Restore deleted trainee (SA only) ─────────────────────────────────────
+// ── Restore deleted trainee ────────────────────────────────────────────────
 
 export async function restoreTrainee(
   traineeId: string,
   cohortId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
-
-  const { data: profile } = await supabase
-    .from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "super_admin") return { error: "Only Super Admin can restore deleted trainees" };
+  try {
+    await assertCohortAccess(cohortId);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 
   const svc = createServiceClient();
   const { error } = await svc

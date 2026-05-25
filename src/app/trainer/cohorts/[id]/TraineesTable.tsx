@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useMemo, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import GraduationToggle from "./GraduationToggle";
 import ResendInviteButton from "./ResendInviteButton";
 import RefreshButton from "./RefreshButton";
 import { getTraineeDetail, toggleAttendanceOverride } from "@/actions/trainee-detail";
 import type { TraineeDetailData } from "@/actions/trainee-detail";
-import { setTraineeTempPassword } from "@/actions/trainees";
+import { setTraineeTempPassword, softDeleteTrainee, restoreTrainee } from "@/actions/trainees";
+import { toast } from "@/lib/toast";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,12 +40,20 @@ type WeekBreakdownRow = {
 
 type WeekTaskCount = { week_number: number; kc: number; lab: number };
 
+type DeletedTrainee = {
+  id: string;
+  full_name: string;
+  personal_email: string;
+  deleted_at: string;
+};
+
 type Props = {
   cohortId: string;
   cohortCodeName: string;
   cohortStartDate: string;
   cohortTrainingWeeks: number;
   liveTrainees: Trainee[];
+  deletedTrainees: DeletedTrainee[];
   progressByTrainee: Record<string, ProgressCounts>;
   weekBreakdown: WeekBreakdownRow[];
   weekTaskCounts: WeekTaskCount[];
@@ -97,6 +107,7 @@ export default function TraineesTable({
   cohortStartDate: _cohortStartDate,
   cohortTrainingWeeks: _cohortTrainingWeeks,
   liveTrainees,
+  deletedTrainees,
   progressByTrainee,
   weekBreakdown,
   weekTaskCounts,
@@ -121,6 +132,17 @@ export default function TraineesTable({
   const [detailView,      setDetailView]      = useState<"overview" | "labs" | "kcs" | "attendance">("overview");
 
   const [isPending, startTransition] = useTransition();
+
+  // Sort state
+  type SortKey = "serial" | "name" | "email" | "status" | "lab" | "kc" | "attendance" | "graduated";
+  const [sortKey, setSortKey] = useState<SortKey>("serial");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Delete / restore state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  const router = useRouter();
 
   // Temp password mode
   const [tempPassMode,      setTempPassMode]      = useState(false);
@@ -172,6 +194,25 @@ export default function TraineesTable({
     }
     return result;
   }, [selectedWeeks, weekBreakdown, progressByTrainee]);
+
+  const sortedTrainees = useMemo(() => {
+    const arr = [...filteredTrainees];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "serial":     cmp = (a.serial_no ?? 999999) - (b.serial_no ?? 999999); break;
+        case "name":       cmp = a.full_name.localeCompare(b.full_name); break;
+        case "email":      cmp = a.personal_email.localeCompare(b.personal_email); break;
+        case "status":     cmp = a.status.localeCompare(b.status); break;
+        case "lab": { const pa = filteredProgressByTrainee[a.id] ?? {lab:0,kc:0,video:0}; const pb = filteredProgressByTrainee[b.id] ?? {lab:0,kc:0,video:0}; cmp = pa.lab - pb.lab; break; }
+        case "kc":  { const pa = filteredProgressByTrainee[a.id] ?? {lab:0,kc:0,video:0}; const pb = filteredProgressByTrainee[b.id] ?? {lab:0,kc:0,video:0}; cmp = pa.kc  - pb.kc;  break; }
+        case "attendance": cmp = (attendanceByTrainee[a.id] ?? 0) - (attendanceByTrainee[b.id] ?? 0); break;
+        case "graduated":  cmp = (a.graduated ? 1 : 0) - (b.graduated ? 1 : 0); break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [filteredTrainees, sortKey, sortDir, filteredProgressByTrainee, attendanceByTrainee]);
 
   function toggleWeek(week: number) {
     setSelectedWeeks((prev) =>
@@ -270,6 +311,50 @@ export default function TraineesTable({
     window.open(`/trainer/cohorts/${cohortId}/trainees/${trainee.id}`, "_blank");
   }
 
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  }
+
+  function SortArrow({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <span className="ml-0.5 text-slate-300">⇅</span>;
+    return <span className="ml-0.5">{sortDir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  function handleDelete(traineeId: string) {
+    startTransition(async () => {
+      const res = await softDeleteTrainee(traineeId, cohortId);
+      if (res.error) { toast(res.error, "error"); } else { toast("Trainee removed"); }
+      setConfirmDeleteId(null);
+      router.refresh();
+    });
+  }
+
+  function handleRestore(traineeId: string) {
+    setRestoringId(traineeId);
+    startTransition(async () => {
+      const res = await restoreTrainee(traineeId, cohortId);
+      if (res.error) { toast(res.error, "error"); } else { toast("Trainee restored"); }
+      setRestoringId(null);
+      router.refresh();
+    });
+  }
+
+  function handleExportCsv() {
+    const headers = ["#", "Name", "Personal Email", "Status", "Labs Done", "Labs Total", "KCs Done", "KCs Total", "Sessions Attended", "Total Sessions", "Graduated"];
+    const dataRows = sortedTrainees.map((t) => {
+      const p = filteredProgressByTrainee[t.id] ?? { kc: 0, lab: 0, video: 0 };
+      return [
+        String(t.serial_no ?? ""), t.full_name, t.personal_email, t.status,
+        String(p.lab), String(filteredTotals.lab),
+        String(p.kc),  String(filteredTotals.kc),
+        String(attendanceByTrainee[t.id] ?? 0), String(totalSessions),
+        t.graduated ? "Yes" : "No",
+      ];
+    });
+    downloadCsv([headers, ...dataRows], `${cohortCodeName}_trainees.csv`);
+  }
+
   return (
     <>
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
@@ -281,6 +366,16 @@ export default function TraineesTable({
               <span className="text-slate-400 font-normal">({filteredTrainees.length})</span>
             </h2>
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportCsv}
+                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                title="Export trainee list as CSV"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export CSV
+              </button>
               <button
                 onClick={() => { setTempPassMode((v) => !v); setSelectedIds(new Set()); }}
                 className={`text-xs font-medium px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
@@ -414,28 +509,35 @@ export default function TraineesTable({
                       />
                     </th>
                   )}
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-12">#</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Personal email</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 w-12 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("serial")}># <SortArrow col="serial" /></th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("name")}>Name <SortArrow col="name" /></th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("email")}>Personal email <SortArrow col="email" /></th>
                   {!isPractitioner && (
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Amalitech email</th>
                   )}
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("status")}>Status <SortArrow col="status" /></th>
                   {hasTasks && (
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[140px]">
-                      {selectedWeeks.length > 0 ? `Progress (wk ${[...selectedWeeks].sort((a,b)=>a-b).join("+")})` : "Progress"}
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 min-w-[160px]">
+                      <span className="mr-1">{selectedWeeks.length > 0 ? `Progress (wk ${[...selectedWeeks].sort((a,b)=>a-b).join("+")})` : "Progress"}</span>
+                      <button onClick={() => toggleSort("lab")} className={`text-[10px] px-1.5 py-0.5 rounded font-medium mr-0.5 ${sortKey==="lab" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                        Lab{sortKey==="lab" ? (sortDir==="asc" ? "↑" : "↓") : ""}
+                      </button>
+                      <button onClick={() => toggleSort("kc")} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${sortKey==="kc" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                        KC{sortKey==="kc" ? (sortDir==="asc" ? "↑" : "↓") : ""}
+                      </button>
                     </th>
                   )}
                   {totalSessions > 0 && (
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Attendance</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("attendance")}>Attendance <SortArrow col="attendance" /></th>
                   )}
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Graduated</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("graduated")}>Graduated <SortArrow col="graduated" /></th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Account</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Temp Pass</th>
+                  <th className="px-4 py-3 w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredTrainees.map((t) => {
+                {sortedTrainees.map((t) => {
                   const progress = filteredProgressByTrainee[t.id] ?? { kc: 0, lab: 0, video: 0 };
                   const online   = !!t.user_id && onlineSet.has(t.user_id);
                   const lastSeen = t.user_id ? (lastSeenByUserId[t.user_id] ?? null) : null;
@@ -551,6 +653,26 @@ export default function TraineesTable({
                           <span className="text-slate-200 text-xs">—</span>
                         )}
                       </td>
+
+                      <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                        {confirmDeleteId === t.id ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-500">Delete?</span>
+                            <button onClick={() => handleDelete(t.id)} disabled={isPending} className="text-[10px] font-medium text-red-600 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50 disabled:opacity-50">Yes</button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] text-slate-400 hover:text-slate-600 px-1.5 py-0.5 rounded hover:bg-slate-50">No</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(t.id)}
+                            className="text-slate-200 hover:text-red-400 transition-colors"
+                            title="Remove trainee"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -559,6 +681,49 @@ export default function TraineesTable({
           </div>
         )}
       </div>
+
+      {/* Deleted trainees */}
+      {deletedTrainees.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden mt-4">
+          <div className="px-6 py-3 border-b border-slate-200 bg-red-50">
+            <h2 className="text-sm font-semibold text-red-700">
+              Deleted trainees <span className="font-normal text-red-400">({deletedTrainees.length})</span>
+            </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Email</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Deleted</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {deletedTrainees.map((t) => (
+                  <tr key={t.id} className="opacity-70">
+                    <td className="px-4 py-3 font-medium text-slate-700">{isPractitioner ? toTitleCase(t.full_name) : t.full_name}</td>
+                    <td className="px-4 py-3 text-slate-500">{t.personal_email}</td>
+                    <td className="px-4 py-3 text-xs text-slate-400">
+                      {new Date(t.deleted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleRestore(t.id)}
+                        disabled={isPending || restoringId === t.id}
+                        className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg disabled:opacity-50 transition-colors"
+                      >
+                        {restoringId === t.id ? "Restoring…" : "Restore"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Temp password results modal */}
       {showPassResults && (

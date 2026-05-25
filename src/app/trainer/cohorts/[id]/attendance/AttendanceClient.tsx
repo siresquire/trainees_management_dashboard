@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import {
@@ -133,6 +133,12 @@ export default function AttendanceClient({
   const [editPartialMins, setEditPartialMins] = useState(partialMins);
   const [thresholdError,  setThresholdError]  = useState("");
 
+  // Session sort / search / jump state
+  const [sessionSortDir, setSessionSortDir] = useState<"desc" | "asc">("desc");
+  const [sessionSearch,  setSessionSearch]  = useState("");
+  const [jumpWeek,       setJumpWeek]       = useState<number | "">("");
+  const [jumpSession,    setJumpSession]    = useState<number | "">("");
+
   // Refs for file inputs (so we can reset them)
   const zoomFileRef   = useRef<HTMLInputElement>(null);
   const teamsFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -159,6 +165,56 @@ export default function AttendanceClient({
     }
     return counts;
   }
+
+  // ── Session search / sort / jump ───────────────────────────────────────────
+
+  const weekOptions = useMemo(() =>
+    [...new Set(sessions.map((s) => s.week_number).filter((w): w is number => w != null))].sort((a,b) => a-b),
+    [sessions]
+  );
+
+  const sessionOptionsForWeek = useMemo(() => {
+    if (jumpWeek === "") return [];
+    return [...new Set(
+      sessions.filter((s) => s.week_number === jumpWeek).map((s) => s.session_number).filter((n): n is number => n != null)
+    )].sort((a,b) => a-b);
+  }, [sessions, jumpWeek]);
+
+  const sortedFilteredSessions = useMemo(() => {
+    let arr = [...sessions];
+    if (sessionSearch.trim()) {
+      const q = sessionSearch.toLowerCase();
+      arr = arr.filter((s) =>
+        s.topic.toLowerCase().includes(q) ||
+        String(s.week_number ?? "").includes(q) ||
+        String(s.session_number ?? "").includes(q)
+      );
+    }
+    arr.sort((a, b) => {
+      const wk = (a.week_number ?? 0) - (b.week_number ?? 0);
+      if (wk !== 0) return sessionSortDir === "asc" ? wk : -wk;
+      const sn = (a.session_number ?? 0) - (b.session_number ?? 0);
+      return sessionSortDir === "asc" ? sn : -sn;
+    });
+    // Pin jump target to top
+    if (jumpWeek !== "") {
+      const top = arr.find(s =>
+        s.week_number === jumpWeek &&
+        (jumpSession === "" || s.session_number === jumpSession)
+      );
+      if (top) return [top, ...arr.filter(s => s.id !== top.id)];
+    }
+    return arr;
+  }, [sessions, sessionSortDir, sessionSearch, jumpWeek, jumpSession]);
+
+  useEffect(() => {
+    if (jumpWeek === "") return;
+    const target = sessions.find(s =>
+      s.week_number === jumpWeek &&
+      (jumpSession === "" || s.session_number === jumpSession)
+    );
+    if (target) setExpandedId(target.id);
+  }, [jumpWeek, jumpSession]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -508,6 +564,56 @@ export default function AttendanceClient({
         </div>
       )}
 
+      {/* ── Session controls (search / sort / jump) ─────────────────────────── */}
+      {sessions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search */}
+          <input
+            type="search"
+            placeholder="Search sessions…"
+            value={sessionSearch}
+            onChange={(e) => setSessionSearch(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 placeholder:text-slate-400 w-48"
+          />
+          {/* Sort toggle */}
+          <button
+            onClick={() => setSessionSortDir((d) => d === "desc" ? "asc" : "desc")}
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
+            title={sessionSortDir === "desc" ? "Newest first — click for oldest first" : "Oldest first — click for newest first"}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+            </svg>
+            {sessionSortDir === "desc" ? "Newest first" : "Oldest first"}
+          </button>
+          {/* Quick jump */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-xs text-slate-500 shrink-0">Jump to:</span>
+            <select
+              value={jumpWeek}
+              onChange={(e) => { setJumpWeek(e.target.value === "" ? "" : Number(e.target.value)); setJumpSession(""); }}
+              className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+            >
+              <option value="">Week…</option>
+              {weekOptions.map((w) => <option key={w} value={w}>Week {w}</option>)}
+            </select>
+            {sessionOptionsForWeek.length > 0 && (
+              <select
+                value={jumpSession}
+                onChange={(e) => setJumpSession(e.target.value === "" ? "" : Number(e.target.value))}
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+              >
+                <option value="">Session…</option>
+                {sessionOptionsForWeek.map((s) => <option key={s} value={s}>S{s}</option>)}
+              </select>
+            )}
+            {jumpWeek !== "" && (
+              <button onClick={() => { setJumpWeek(""); setJumpSession(""); }} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Sessions list ───────────────────────────────────────────────────── */}
       {sessions.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-slate-200 py-12 text-center">
@@ -515,9 +621,15 @@ export default function AttendanceClient({
             No sessions recorded yet. Upload a Zoom report or create a Teams session above.
           </p>
         </div>
+      ) : sortedFilteredSessions.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-slate-200 py-12 text-center">
+          <p className="text-sm text-slate-400">
+            No sessions match your search.
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {sessions.map((session) => {
+          {sortedFilteredSessions.map((session) => {
             const stats      = sessionStats(session.id);
             const attMap     = attendanceBySession.get(session.id) ?? new Map<string, AttendanceRow>();
             const hasAtt     = attMap.size > 0;

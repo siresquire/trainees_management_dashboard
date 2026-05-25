@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import RosterUploadForm from "./RosterUploadForm";
 import AddTraineeForm from "./AddTraineeForm";
 import AutoRefresh from "@/components/AutoRefresh";
@@ -147,6 +146,12 @@ export default async function CohortTraineesPage({
         cohortStartDate={cohort?.start_date ?? new Date().toISOString()}
         cohortTrainingWeeks={cohort?.training_weeks ?? 12}
         liveTrainees={liveTrainees}
+        deletedTrainees={deletedTrainees.map((t) => ({
+          id: t.id,
+          full_name: t.full_name,
+          personal_email: t.personal_email,
+          deleted_at: t.deleted_at!,
+        }))}
         progressByTrainee={progressByTrainee}
         weekBreakdown={weekBreakdownRows ?? []}
         weekTaskCounts={weekTaskCounts}
@@ -159,50 +164,6 @@ export default async function CohortTraineesPage({
         isPractitioner={isPractitioner}
         isGraduatable={isGraduatable}
       />
-
-      {/* Deleted trainees */}
-      {deletedTrainees.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          <div className="px-6 py-3 border-b border-slate-200 bg-red-50">
-            <h2 className="text-sm font-semibold text-red-700">
-              Deleted trainees{" "}
-              <span className="font-normal text-red-400">({deletedTrainees.length})</span>
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Name</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Email</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Deleted</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {deletedTrainees.map((t) => (
-                  <tr key={t.id} className="opacity-60">
-                    <td className="px-4 py-3 font-medium text-slate-700">
-                      <Link href={`/trainer/cohorts/${id}/trainees/${t.id}`} className="hover:text-orange-600 transition-colors">
-                        {t.full_name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{t.personal_email}</td>
-                    <td className="px-4 py-3 text-xs text-slate-400">
-                      {new Date(t.deleted_at!).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link href={`/trainer/cohorts/${id}/trainees/${t.id}`} className="text-xs text-slate-400 hover:text-orange-600 transition-colors">
-                        View →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
