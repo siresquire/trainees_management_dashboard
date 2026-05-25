@@ -457,11 +457,25 @@ export async function updateCohortSettings(
     cohort_subtype:  data.cohort_subtype || null,
   };
 
+  const svc = createServiceClient();
+
   if (isAdmin && data.present_threshold_mins != null) {
     update.present_threshold_mins = data.present_threshold_mins;
+  } else if (!isAdmin && data.cohort_subtype) {
+    // Non-admins can't set an arbitrary threshold, but changing the subtype
+    // must still sync the threshold to the admin-configured default for that subtype.
+    const { data: settings } = await svc
+      .from("admin_settings")
+      .select("practitioner_university_threshold_mins, practitioner_external_threshold_mins")
+      .eq("level", "practitioner")
+      .single();
+    const s = settings as Record<string, unknown> | null;
+    if (data.cohort_subtype === "university") {
+      update.present_threshold_mins = Number(s?.practitioner_university_threshold_mins ?? 45);
+    } else if (data.cohort_subtype === "external") {
+      update.present_threshold_mins = Number(s?.practitioner_external_threshold_mins ?? 60);
+    }
   }
-
-  const svc = createServiceClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await svc.from("cohorts").update(update as any).eq("id", cohortId);
   if (error) return { error: error.message };
