@@ -36,7 +36,7 @@ export default async function TraineeDashboard() {
   const isPractitioner = cohort?.level === "practitioner";
 
   // Parallel fetches
-  const [{ data: allTasks }, { data: myCompletions }, { data: sessions }] = await Promise.all([
+  const [{ data: allTasks }, { data: myCompletions }, { data: sessions }, { data: myExamOutcomes }] = await Promise.all([
     supabase
       .from("cohort_week_tasks")
       .select("id, week_number, task_name, task_type, display_order")
@@ -51,6 +51,10 @@ export default async function TraineeDashboard() {
       .from("sessions")
       .select("id, week_number")
       .eq("cohort_id", trainee.cohort_id),
+    supabase
+      .from("exam_outcomes")
+      .select("outcome")
+      .eq("trainee_id", trainee.id),
   ]);
 
   const tasks = allTasks ?? [];
@@ -95,7 +99,9 @@ export default async function TraineeDashboard() {
     att1to6Pct !== null && labs1to6Pct !== null && kcs1to6Pct !== null
       ? att1to6Pct >= THRESHOLD && labs1to6Pct >= THRESHOLD && kcs1to6Pct >= THRESHOLD
       : null;
-  const stipend2Eligible: boolean = !!trainee.graduated;
+  // Stipend 2 requires a genuinely passed AWS exam result — graduation alone is not enough.
+  const examPassed: boolean = (myExamOutcomes ?? []).some((o) => o.outcome === "passed");
+  const stipend2Eligible: boolean = examPassed;
 
   // Countdown: show whenever end_date is set and cohort hasn't ended
   const msUntilEnd = cohort?.end_date ? new Date(cohort.end_date).getTime() - Date.now() : null;
@@ -244,7 +250,7 @@ export default async function TraineeDashboard() {
             <EligCard
               title="Stipend 2"
               eligible={stipend2Eligible}
-              lines={[{ label: "Exam passed / graduated" }]}
+              lines={[{ label: "AWS exam passed" }]}
               booleanResult
             />
           </div>

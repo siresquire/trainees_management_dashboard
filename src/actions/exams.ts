@@ -446,12 +446,21 @@ export async function updateOfficialScore(
   return { success: true };
 }
 
+// ── Official AWS passing scores per exam type ─────────────────────────────────
+// These are the minimum scores (out of 1000) set by AWS for each certification.
+export const AWS_PASSING_SCORES: Record<string, number> = {
+  "CCP":     700,
+  "SAA-C03": 720,
+  "DVA-C02": 720,
+  "SAP-C02": 750,
+  "DOP-C02": 750,
+};
+
 // ── Trainee self-reports their own exam result ────────────────────────────────
 
 const SelfReportSchema = z.object({
   examType:  z.string().min(1),
   score:     z.coerce.number().int().min(100).max(1000),
-  passed:    z.enum(["passed", "failed", "pending"]),
   examDate:  z.string().min(1, "Exam date is required"),
   attemptNo: z.coerce.number().int().min(1).optional(),
   notes:     z.string().max(500).optional(),
@@ -461,7 +470,6 @@ export async function submitMyExamResult(formData: FormData) {
   const parsed = SelfReportSchema.safeParse({
     examType:  formData.get("examType"),
     score:     formData.get("score"),
-    passed:    formData.get("passed"),
     examDate:  formData.get("examDate"),
     attemptNo: formData.get("attemptNo") || undefined,
     notes:     formData.get("notes") || undefined,
@@ -499,11 +507,15 @@ export async function submitMyExamResult(formData: FormData) {
     attemptNo = (existing?.attempt_no ?? 0) + 1;
   }
 
+  // Auto-determine pass/fail from the official AWS threshold for this exam type
+  const passingScore = AWS_PASSING_SCORES[d.examType] ?? 700;
+  const outcome: "passed" | "failed" = d.score >= passingScore ? "passed" : "failed";
+
   const { error } = await supabase.from("exam_outcomes").insert({
     trainee_id:    trainee.id,
     exam_type:     d.examType as ExamType,
     actual_score:  d.score,
-    outcome:       d.passed,
+    outcome,
     exam_date:     d.examDate,
     attempt_no:    attemptNo,
     notes:         d.notes ?? null,

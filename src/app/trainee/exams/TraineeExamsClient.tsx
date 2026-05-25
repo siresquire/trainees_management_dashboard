@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
-import { submitMyExamResult, deleteMyExamResult } from "@/actions/exams";
+import { submitMyExamResult, deleteMyExamResult, AWS_PASSING_SCORES } from "@/actions/exams";
 import { upsertExamSchedule } from "@/actions/exam-schedules";
 
 type Quiz = { id: string; quiz_name: string; focus_type: string; focus_label: string | null; week_number: number; quiz_date: string | null; max_score: number };
@@ -84,6 +84,8 @@ export default function TraineeExamsClient({
 
   const [showReportForm,  setShowReportForm]  = useState(false);
   const [reportError,     setReportError]     = useState("");
+  const [reportExamType,  setReportExamType]  = useState(availableExamTypes[0] ?? "CCP");
+  const [reportScore,     setReportScore]     = useState("");
   const [showSchedForm,   setShowSchedForm]   = useState(false);
   const [schedError,      setSchedError]      = useState("");
 
@@ -349,22 +351,50 @@ export default function TraineeExamsClient({
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Exam *</label>
-                  <select name="examType" required className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300">
+                  <select
+                    name="examType"
+                    required
+                    value={reportExamType}
+                    onChange={(e) => { setReportExamType(e.target.value); setReportScore(""); }}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  >
                     {availableExamTypes.map((et) => <option key={et} value={et}>{et}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Score *</label>
-                  <input name="score" type="number" min="100" max="1000" placeholder="e.g. 750" required
-                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  <input
+                    name="score"
+                    type="number"
+                    min="100"
+                    max="1000"
+                    placeholder="e.g. 750"
+                    required
+                    value={reportScore}
+                    onChange={(e) => setReportScore(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Result *</label>
-                  <select name="passed" required className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300">
-                    <option value="passed">Pass</option>
-                    <option value="failed">Fail</option>
-                    <option value="pending">Awaiting result</option>
-                  </select>
+                <div className="flex flex-col justify-end">
+                  {/* Live pass/fail preview */}
+                  {(() => {
+                    const n = parseInt(reportScore, 10);
+                    const threshold = AWS_PASSING_SCORES[reportExamType] ?? 700;
+                    if (!reportScore || isNaN(n)) {
+                      return (
+                        <div className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 bg-white h-[34px] flex items-center">
+                          Result auto-calculated
+                        </div>
+                      );
+                    }
+                    const passed = n >= threshold;
+                    return (
+                      <div className={`rounded-lg px-2.5 py-1.5 text-sm font-semibold flex items-center gap-2 ${passed ? "bg-green-100 text-green-700 border border-green-200" : "bg-red-100 text-red-700 border border-red-200"}`}>
+                        {passed ? "✓ Pass" : "✗ Fail"}
+                        <span className="font-normal text-xs opacity-70">(min {threshold})</span>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Exam Date *</label>
@@ -388,7 +418,7 @@ export default function TraineeExamsClient({
                   className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
                   {isPending ? "Submitting…" : "Submit"}
                 </button>
-                <button type="button" onClick={() => { setShowReportForm(false); setReportError(""); }}
+                <button type="button" onClick={() => { setShowReportForm(false); setReportError(""); setReportScore(""); }}
                   className="px-4 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg">
                   Cancel
                 </button>
