@@ -30,7 +30,7 @@ async function assertSuperAdmin() {
 const InviteSchema = z.object({
   full_name: z.string().min(2, "Name is required"),
   email: z.string().email("Valid email required"),
-  role: z.enum(["trainer", "quiz_creator", "admin"]),
+  role: z.enum(["trainer", "quiz_creator", "admin", "pro_skills_instructor"]),
 });
 
 export type InviteStaffState = {

@@ -32,7 +32,7 @@ export default function InviteStaffForm() {
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
-        Invite Trainer / QC
+        Invite Staff Member
       </button>
     );
   }
@@ -208,6 +208,7 @@ export default function InviteStaffForm() {
             <option value="trainer">Trainer</option>
             <option value="quiz_creator">Quiz Creator</option>
             <option value="admin">Admin</option>
+            <option value="pro_skills_instructor">Pro Skills Instructor</option>
           </select>
         </div>
 
