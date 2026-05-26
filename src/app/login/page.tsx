@@ -10,7 +10,8 @@ export default async function LoginPage() {
     .from("cohorts")
     .select("id, name, code_name")
     .eq("status", "active")
-    .order("name");
+    .order("code_name", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
 
   return <LoginForm cohorts={cohorts ?? []} />;
 }
