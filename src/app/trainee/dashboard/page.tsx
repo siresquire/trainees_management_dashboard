@@ -108,6 +108,26 @@ export default async function TraineeDashboard() {
   const daysUntilEnd = msUntilEnd !== null ? Math.ceil(msUntilEnd / (24 * 60 * 60 * 1000)) : null;
   const showCountdown = daysUntilEnd !== null && daysUntilEnd >= 0;
 
+  // Current week
+  const msFromStart = cohort?.start_date ? Date.now() - new Date(cohort.start_date).getTime() : null;
+  const currentWeek = msFromStart !== null && cohort
+    ? Math.min(Math.max(1, Math.ceil(msFromStart / (7 * 24 * 60 * 60 * 1000))), cohort.training_weeks)
+    : null;
+
+  // Stipend 1 nudge — show when still in wks 1-6 and not yet eligible
+  const labsNeededForStipend1 = labs1to6.length > 0
+    ? Math.max(0, Math.ceil(labs1to6.length * 0.8) - labsDone1to6.length)
+    : 0;
+  const kcsNeededForStipend1 = kcs1to6.length > 0
+    ? Math.max(0, Math.ceil(kcs1to6.length * 0.8) - kcsDone1to6.length)
+    : 0;
+  const attBelowThreshold = att1to6Pct !== null && att1to6Pct < THRESHOLD;
+  const showStipend1Nudge =
+    isPractitioner &&
+    stipend1Eligible !== true &&
+    currentWeek !== null && currentWeek <= 6 &&
+    (labsNeededForStipend1 > 0 || kcsNeededForStipend1 > 0 || attBelowThreshold);
+
   // ── Overall stats ─────────────────────────────────────────────────────────
   const kcTasks   = tasks.filter((t) => t.task_type === "kc");
   const labTasks  = tasks.filter((t) => t.task_type === "lab");
@@ -163,12 +183,12 @@ export default async function TraineeDashboard() {
         </div>
       )}
 
-      {/* Countdown banner — visible for entire cohort duration */}
+      {/* Countdown + current week banner */}
       {showCountdown && (
         <div className={`rounded-2xl p-4 flex items-center gap-3 border ${
-          daysUntilEnd === 0        ? "bg-red-50 border-red-200"   :
-          daysUntilEnd! <= 7        ? "bg-amber-50 border-amber-200" :
-                                      "bg-blue-50 border-blue-200"
+          daysUntilEnd === 0   ? "bg-red-50 border-red-200"     :
+          daysUntilEnd! <= 7   ? "bg-amber-50 border-amber-200" :
+                                 "bg-blue-50 border-blue-200"
         }`}>
           <svg className={`w-5 h-5 shrink-0 ${
             daysUntilEnd === 0   ? "text-red-500"   :
@@ -177,16 +197,27 @@ export default async function TraineeDashboard() {
           }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <div>
-            <p className={`text-sm font-semibold ${
-              daysUntilEnd === 0   ? "text-red-800"   :
-              daysUntilEnd! <= 7   ? "text-amber-800" :
-                                     "text-blue-800"
-            }`}>
-              {daysUntilEnd === 0
-                ? "Training ends today!"
-                : `${daysUntilEnd} day${daysUntilEnd !== 1 ? "s" : ""} remaining in training`}
-            </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <p className={`text-sm font-semibold ${
+                daysUntilEnd === 0   ? "text-red-800"   :
+                daysUntilEnd! <= 7   ? "text-amber-800" :
+                                       "text-blue-800"
+              }`}>
+                {daysUntilEnd === 0
+                  ? "Training ends today!"
+                  : `${daysUntilEnd} day${daysUntilEnd !== 1 ? "s" : ""} remaining in training`}
+              </p>
+              {currentWeek !== null && (
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  daysUntilEnd === 0   ? "bg-red-100 text-red-700"     :
+                  daysUntilEnd! <= 7   ? "bg-amber-100 text-amber-700" :
+                                         "bg-blue-100 text-blue-700"
+                }`}>
+                  Week {currentWeek} of {cohort?.training_weeks}
+                </span>
+              )}
+            </div>
             <p className={`text-xs mt-0.5 ${
               daysUntilEnd === 0   ? "text-red-600"   :
               daysUntilEnd! <= 7   ? "text-amber-600" :
@@ -194,6 +225,61 @@ export default async function TraineeDashboard() {
             }`}>
               Make sure your labs, KCs, and attendance are up to date.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Stipend 1 nudge banner — practitioner only, weeks 1–6, not yet eligible */}
+      {showStipend1Nudge && (
+        <div className="rounded-2xl p-4 flex gap-3 border bg-orange-50 border-orange-200">
+          <svg className="w-5 h-5 shrink-0 text-orange-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-orange-800">
+              Stipend 1 — you&apos;re still in the qualification window (Week {currentWeek} of 6)
+            </p>
+            <p className="text-xs text-orange-700 mt-1 mb-2">
+              To qualify you need ≥80% completion in Labs, KCs, and Attendance for Weeks 1–6.
+              Here&apos;s what&apos;s still needed:
+            </p>
+            <ul className="space-y-1">
+              {labsNeededForStipend1 > 0 && (
+                <li className="flex items-center gap-1.5 text-xs text-orange-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                  <span>
+                    <strong>{labsNeededForStipend1} more Lab{labsNeededForStipend1 !== 1 ? "s" : ""}</strong>
+                    {" "}to complete in Weeks 1–6
+                    <span className="ml-1 text-orange-500">
+                      (currently {labs1to6Pct !== null ? `${Math.round(labs1to6Pct)}%` : "—"})
+                    </span>
+                  </span>
+                </li>
+              )}
+              {kcsNeededForStipend1 > 0 && (
+                <li className="flex items-center gap-1.5 text-xs text-orange-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                  <span>
+                    <strong>{kcsNeededForStipend1} more KC{kcsNeededForStipend1 !== 1 ? "s" : ""}</strong>
+                    {" "}to complete in Weeks 1–6
+                    <span className="ml-1 text-orange-500">
+                      (currently {kcs1to6Pct !== null ? `${Math.round(kcs1to6Pct)}%` : "—"})
+                    </span>
+                  </span>
+                </li>
+              )}
+              {attBelowThreshold && (
+                <li className="flex items-center gap-1.5 text-xs text-orange-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                  <span>
+                    Attendance in Weeks 1–6 is below 80%
+                    <span className="ml-1 text-orange-500">
+                      (currently {att1to6Pct !== null ? `${Math.round(att1to6Pct)}%` : "—"})
+                    </span>
+                  </span>
+                </li>
+              )}
+            </ul>
           </div>
         </div>
       )}
