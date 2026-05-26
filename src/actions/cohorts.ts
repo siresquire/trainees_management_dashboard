@@ -114,6 +114,7 @@ export async function createCohort(
       accepted_at: new Date().toISOString(),
     });
 
+    revalidatePath("/login");
     redirect(`/trainer/cohorts/${cohort.id}`);
   }
 
@@ -196,6 +197,7 @@ export async function createCohort(
     });
   }
 
+  revalidatePath("/login");
   const redirectBase = profile?.role === "super_admin" ? "/superadmin" : "/trainer";
   redirect(`${redirectBase}/cohorts/${cohort.id}`);
 }
@@ -228,6 +230,7 @@ export async function updateCohortStatus(
     // SA's RLS allows deletes via the regular client
     const { error } = await supabase.from("cohorts").delete().eq("id", cohortId);
     if (error) return { error: error.message };
+    revalidatePath("/login");
     revalidatePath("/superadmin/dashboard");
     revalidatePath("/trainer/dashboard");
     redirect(profile.role === "super_admin" ? "/superadmin/dashboard" : "/trainer/dashboard");
@@ -255,6 +258,7 @@ export async function updateCohortStatus(
   if (error) return { error: error.message };
 
   revalidateTag("cohorts", {});
+  revalidatePath("/login");
   revalidatePath("/trainer/dashboard");
   revalidatePath("/superadmin/dashboard");
   revalidatePath(`/trainer/cohorts/${cohortId}`);
