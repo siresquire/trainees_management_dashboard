@@ -2,6 +2,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import { loadAttendanceThresholdMins } from "@/actions/admin-settings";
 import CohortSettingsForm from "./CohortSettingsForm";
+import ProSkillsAccessPanel from "./ProSkillsAccessPanel";
 
 export default async function CohortSettingsPage({
   params,
@@ -19,6 +20,7 @@ export default async function CohortSettingsPage({
   const isSuperAdmin = profile?.role === "super_admin";
   const isAdmin = profile?.role === "admin" || isSuperAdmin;
 
+  let isOwner = false;
   if (!isSuperAdmin) {
     const { data: access } = await supabase
       .from("cohort_access")
@@ -27,6 +29,9 @@ export default async function CohortSettingsPage({
       .eq("trainer_id", user.id)
       .single();
     if (!access) notFound();
+    isOwner = access.role === "owner";
+  } else {
+    isOwner = true;
   }
 
   const svc = createServiceClient();
@@ -40,6 +45,46 @@ export default async function CohortSettingsPage({
   ]);
 
   if (!cohort) notFound();
+
+  // Fetch pro skills instructors for this cohort (only for owners/admins)
+  let proSkillsInstructors: { id: string; full_name: string; email: string }[] = [];
+  if (isOwner || isAdmin) {
+    const { data: psAccess } = await svc
+      .from("cohort_access")
+      .select("trainer_id")
+      .eq("cohort_id", id)
+      .eq("role", "pro_skills");
+
+    const instructorIds = (psAccess ?? []).map((a) => a.trainer_id);
+    if (instructorIds.length) {
+      const { data: instructorProfiles } = await svc
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", instructorIds);
+
+      // Fetch emails from auth.users via admin API
+      const authAdmin = (svc.auth.admin as unknown as { getUserById: (id: string) => Promise<{ data: { user: { email?: string } | null } }> });
+      const emailMap: Record<string, string> = {};
+      await Promise.all(
+        instructorIds.map(async (uid) => {
+          try {
+            const { data } = await authAdmin.getUserById(uid);
+            emailMap[uid] = data.user?.email ?? "";
+          } catch {
+            emailMap[uid] = "";
+          }
+        })
+      );
+
+      proSkillsInstructors = (instructorProfiles ?? []).map((p) => ({
+        id:        p.id,
+        full_name: p.full_name,
+        email:     emailMap[p.id] ?? "",
+      }));
+    }
+  }
+
+  const showProSkillsPanel = isOwner || isAdmin;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -62,6 +107,12 @@ export default async function CohortSettingsPage({
         universityMins={thresholdMins.universityMins}
         externalMins={thresholdMins.externalMins}
       />
+      {showProSkillsPanel && (
+        <ProSkillsAccessPanel
+          cohortId={id}
+          instructors={proSkillsInstructors}
+        />
+      )}
     </div>
   );
 }

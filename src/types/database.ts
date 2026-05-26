@@ -1395,6 +1395,163 @@ export type Database = {
         }
         Relationships: []
       }
+      pro_skills_sessions: {
+        Row: {
+          id:            string
+          cohort_id:     string
+          instructor_id: string
+          title:         string
+          session_date:  string
+          topic:         string | null
+          created_at:    string
+        }
+        Insert: {
+          id?:           string
+          cohort_id:     string
+          instructor_id: string
+          title:         string
+          session_date:  string
+          topic?:        string | null
+          created_at?:   string
+        }
+        Update: {
+          id?:           string
+          cohort_id?:    string
+          instructor_id?: string
+          title?:        string
+          session_date?: string
+          topic?:        string | null
+          created_at?:   string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_skills_sessions_cohort_id_fkey"
+            columns: ["cohort_id"]
+            isOneToOne: false
+            referencedRelation: "cohorts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_skills_attendance: {
+        Row: {
+          id:         string
+          session_id: string
+          trainee_id: string
+          status:     string
+          created_at: string
+        }
+        Insert: {
+          id?:        string
+          session_id: string
+          trainee_id: string
+          status?:    string
+          created_at?: string
+        }
+        Update: {
+          id?:        string
+          session_id?: string
+          trainee_id?: string
+          status?:    string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_skills_attendance_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "pro_skills_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_skills_attendance_trainee_id_fkey"
+            columns: ["trainee_id"]
+            isOneToOne: false
+            referencedRelation: "trainees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_skills_assignments: {
+        Row: {
+          id:            string
+          cohort_id:     string
+          instructor_id: string
+          title:         string
+          description:   string | null
+          due_date:      string | null
+          created_at:    string
+        }
+        Insert: {
+          id?:           string
+          cohort_id:     string
+          instructor_id: string
+          title:         string
+          description?:  string | null
+          due_date?:     string | null
+          created_at?:   string
+        }
+        Update: {
+          id?:           string
+          cohort_id?:    string
+          instructor_id?: string
+          title?:        string
+          description?:  string | null
+          due_date?:     string | null
+          created_at?:   string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_skills_assignments_cohort_id_fkey"
+            columns: ["cohort_id"]
+            isOneToOne: false
+            referencedRelation: "cohorts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_skills_submissions: {
+        Row: {
+          id:            string
+          assignment_id: string
+          trainee_id:    string
+          completed:     boolean
+          completed_at:  string | null
+          created_at:    string
+        }
+        Insert: {
+          id?:           string
+          assignment_id: string
+          trainee_id:    string
+          completed?:    boolean
+          completed_at?: string | null
+          created_at?:   string
+        }
+        Update: {
+          id?:           string
+          assignment_id?: string
+          trainee_id?:   string
+          completed?:    boolean
+          completed_at?: string | null
+          created_at?:   string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_skills_submissions_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "pro_skills_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_skills_submissions_trainee_id_fkey"
+            columns: ["trainee_id"]
+            isOneToOne: false
+            referencedRelation: "trainees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       question_banks: {
         Row: {
           created_at: string
@@ -2549,7 +2706,7 @@ export type Database = {
     Enums: {
       access_request_status: "pending" | "approved" | "denied"
       attendance_status: "present" | "partial" | "brief" | "absent"
-      cohort_access_role: "owner" | "trainer"
+      cohort_access_role: "owner" | "trainer" | "pro_skills"
       cohort_level: "practitioner" | "associate" | "devops" | "general"
       cohort_status: "active" | "completed" | "archived" | "deleted"
       cohort_platform: "canvas" | "whizlabs" | "devops" | "general"
@@ -2600,6 +2757,7 @@ export type Database = {
         | "trainee"
         | "quiz_creator"
         | "quiz_taker"
+        | "pro_skills_instructor"
       waiver_status: "pending" | "approved" | "rejected"
     }
     CompositeTypes: {
@@ -2732,7 +2890,7 @@ export const Constants = {
   public: {
     Enums: {
       attendance_status: ["present", "partial", "brief", "absent"],
-      cohort_access_role: ["owner", "trainer"],
+      cohort_access_role: ["owner", "trainer", "pro_skills"],
       cohort_level: ["practitioner", "associate", "devops", "general"],
       cohort_platform: ["canvas", "whizlabs", "devops", "general"],
       cohort_type: ["university", "external", "graduate"],
@@ -2785,6 +2943,7 @@ export const Constants = {
         "trainee",
         "quiz_creator",
         "quiz_taker",
+        "pro_skills_instructor",
       ],
       waiver_status: ["pending", "approved", "rejected"],
     },

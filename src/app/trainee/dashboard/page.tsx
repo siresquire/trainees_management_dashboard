@@ -126,6 +126,24 @@ export default async function TraineeDashboard() {
     p_cohort_id: trainee.cohort_id,
   });
 
+  // Pro skills data
+  const [{ data: proSkillsSessions }, { data: proSkillsAssignments }] = await Promise.all([
+    supabase
+      .from("pro_skills_sessions")
+      .select("id, title, session_date, pro_skills_attendance(status)")
+      .eq("cohort_id", trainee.cohort_id)
+      .eq("pro_skills_attendance.trainee_id", trainee.id)
+      .order("session_date", { ascending: false })
+      .limit(5),
+    supabase
+      .from("pro_skills_assignments")
+      .select("id, title, due_date, pro_skills_submissions(completed)")
+      .eq("cohort_id", trainee.cohort_id)
+      .eq("pro_skills_submissions.trainee_id", trainee.id)
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
+
   const myRank = leaderboard?.find((r) => r.trainee_id === trainee.id)?.rank ?? null;
   const cohortSize = leaderboard?.length ?? 0;
   const totalLabTasks = leaderboard?.[0]?.total_lab_tasks ?? labTasks.length;
@@ -274,6 +292,78 @@ export default async function TraineeDashboard() {
           </div>
         )}
       </div>
+
+      {/* Professional Skills */}
+      {(proSkillsSessions && proSkillsSessions.length > 0) || (proSkillsAssignments && proSkillsAssignments.length > 0) ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-slate-900">Professional Skills</h2>
+
+          {/* Sessions */}
+          {proSkillsSessions && proSkillsSessions.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500 mb-2">Recent Sessions</h3>
+              <div className="space-y-1.5">
+                {proSkillsSessions.map((session) => {
+                  const attRows = (session.pro_skills_attendance as unknown as { status: string }[] | null) ?? [];
+                  const attStatus = attRows[0]?.status ?? null;
+                  return (
+                    <div key={session.id} className="flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-medium text-slate-900">{session.title}</span>
+                        <span className="text-slate-400 ml-1.5">
+                          {new Date(session.session_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </span>
+                      </div>
+                      {attStatus === "present" && (
+                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Present</span>
+                      )}
+                      {attStatus === "late" && (
+                        <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Late</span>
+                      )}
+                      {attStatus === "absent" && (
+                        <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">Absent</span>
+                      )}
+                      {!attStatus && (
+                        <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">—</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Assignments */}
+          {proSkillsAssignments && proSkillsAssignments.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500 mb-2">Recent Assignments</h3>
+              <div className="space-y-1.5">
+                {proSkillsAssignments.map((assignment) => {
+                  const subRows = (assignment.pro_skills_submissions as unknown as { completed: boolean }[] | null) ?? [];
+                  const completed = subRows[0]?.completed ?? false;
+                  return (
+                    <div key={assignment.id} className="flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-medium text-slate-900">{assignment.title}</span>
+                        {assignment.due_date && (
+                          <span className="text-slate-400 ml-1.5">
+                            Due {new Date(assignment.due_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                      </div>
+                      {completed ? (
+                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done</span>
+                      ) : (
+                        <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">Not done</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Leaderboard */}
       {leaderboard && leaderboard.length > 0 && (
