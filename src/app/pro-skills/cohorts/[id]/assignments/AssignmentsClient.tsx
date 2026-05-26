@@ -7,6 +7,7 @@ import {
   deleteProSkillsAssignment,
   toggleProSkillsSubmission,
 } from "@/actions/pro-skills";
+import { toProperCase } from "@/lib/utils";
 
 type Assignment = {
   id: string;
@@ -42,6 +43,44 @@ function fmtDate(iso: string) {
   });
 }
 
+function Tick({
+  checked,
+  pending,
+  onChange,
+}: {
+  checked: boolean;
+  pending: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      disabled={pending}
+      className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all duration-150 ${
+        checked
+          ? "bg-orange-500 border-orange-500"
+          : "bg-white border-slate-300 hover:border-orange-400"
+      } ${pending ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      {checked && (
+        <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M2 6l3 3 5-5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+      {pending && !checked && (
+        <div className="w-2.5 h-2.5 rounded-full border-2 border-orange-400 border-t-transparent animate-spin" />
+      )}
+    </button>
+  );
+}
+
 export default function AssignmentsClient({ cohortId, assignments, trainees, submissions }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -65,6 +104,9 @@ export default function AssignmentsClient({ cohortId, assignments, trainees, sub
   // Optimistic submission state: "assignmentId:traineeId" → completed
   const [optSubs, setOptSubs] = useState<Record<string, boolean>>({});
 
+  // Per-item pending keys
+  const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
+
   const refresh = () => router.refresh();
 
   // Build lookup: assignmentId → traineeId → submission
@@ -83,10 +125,10 @@ export default function AssignmentsClient({ cohortId, assignments, trainees, sub
   function handleToggle(assignmentId: string, traineeId: string, newCompleted: boolean) {
     const key = `${assignmentId}:${traineeId}`;
     setOptSubs((p) => ({ ...p, [key]: newCompleted }));
-    startTransition(async () => {
-      const res = await toggleProSkillsSubmission(assignmentId, traineeId, cohortId, newCompleted);
+    setPendingKeys((p) => new Set(p).add(key));
+    toggleProSkillsSubmission(assignmentId, traineeId, cohortId, newCompleted).then((res) => {
+      setPendingKeys((p) => { const n = new Set(p); n.delete(key); return n; });
       if ("error" in res && res.error) {
-        // Revert
         setOptSubs((p) => ({ ...p, [key]: !newCompleted }));
         setRowErrors((p) => ({ ...p, [assignmentId]: res.error! }));
         return;
@@ -300,17 +342,21 @@ export default function AssignmentsClient({ cohortId, assignments, trainees, sub
                           <tbody className="divide-y divide-slate-50">
                             {trainees.map((t) => {
                               const done = isCompleted(assignment.id, t.id);
+                              const key = `${assignment.id}:${t.id}`;
+                              const pending = pendingKeys.has(key);
                               return (
                                 <tr key={t.id} className="hover:bg-slate-50">
-                                  <td className="px-3 py-2 text-slate-900 font-medium">{t.full_name}</td>
-                                  <td className="px-3 py-2 text-center">
-                                    <input
-                                      type="checkbox"
-                                      checked={done}
-                                      onChange={(e) => handleToggle(assignment.id, t.id, e.target.checked)}
-                                      disabled={isPending}
-                                      className="w-4 h-4 rounded border-slate-300 text-orange-500 focus:ring-orange-400 cursor-pointer disabled:opacity-50"
-                                    />
+                                  <td className="px-3 py-2 text-slate-900 font-medium">
+                                    {toProperCase(t.full_name)}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex justify-center">
+                                      <Tick
+                                        checked={done}
+                                        pending={pending}
+                                        onChange={() => handleToggle(assignment.id, t.id, !done)}
+                                      />
+                                    </div>
                                   </td>
                                 </tr>
                               );
