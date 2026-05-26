@@ -4,7 +4,7 @@ import AppShell, { type NavItem } from "@/components/AppShell";
 
 const NAV: NavItem[] = [
   { href: "/pro-skills/dashboard", label: "My Cohorts", icon: "grid",     exact: true },
-  { href: "/trainer/profile",      label: "My Profile", icon: "settings" },
+  { href: "/pro-skills/profile",   label: "My Profile", icon: "settings" },
 ];
 
 export default async function ProSkillsLayout({ children }: { children: React.ReactNode }) {
@@ -28,7 +28,7 @@ export default async function ProSkillsLayout({ children }: { children: React.Re
       navItems={NAV}
       user={{ name: profile.full_name, role: profile.role }}
       theme="light"
-      settingsHref="/trainer/profile"
+      settingsHref="/pro-skills/profile"
     >
       {children}
     </AppShell>

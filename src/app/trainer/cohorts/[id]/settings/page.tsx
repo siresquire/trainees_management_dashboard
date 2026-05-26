@@ -46,42 +46,27 @@ export default async function CohortSettingsPage({
 
   if (!cohort) notFound();
 
-  // Fetch pro skills instructors for this cohort (only for owners/admins)
-  let proSkillsInstructors: { id: string; full_name: string; email: string }[] = [];
+  // Fetch pro skills instructors: currently assigned + all available (for dropdown)
+  let proSkillsInstructors: { id: string; full_name: string }[] = [];
+  let allProSkillsInstructors: { id: string; full_name: string }[] = [];
   if (isOwner || isAdmin) {
-    const { data: psAccess } = await svc
-      .from("cohort_access")
-      .select("trainer_id")
-      .eq("cohort_id", id)
-      .eq("role", "pro_skills");
-
-    const instructorIds = (psAccess ?? []).map((a) => a.trainer_id);
-    if (instructorIds.length) {
-      const { data: instructorProfiles } = await svc
+    const [{ data: psAccess }, { data: allPSI }] = await Promise.all([
+      svc
+        .from("cohort_access")
+        .select("trainer_id")
+        .eq("cohort_id", id)
+        .eq("role", "pro_skills"),
+      svc
         .from("profiles")
         .select("id, full_name")
-        .in("id", instructorIds);
+        .eq("role", "pro_skills_instructor")
+        .eq("is_active", true)
+        .order("full_name"),
+    ]);
 
-      // Fetch emails from auth.users via admin API
-      const authAdmin = (svc.auth.admin as unknown as { getUserById: (id: string) => Promise<{ data: { user: { email?: string } | null } }> });
-      const emailMap: Record<string, string> = {};
-      await Promise.all(
-        instructorIds.map(async (uid) => {
-          try {
-            const { data } = await authAdmin.getUserById(uid);
-            emailMap[uid] = data.user?.email ?? "";
-          } catch {
-            emailMap[uid] = "";
-          }
-        })
-      );
-
-      proSkillsInstructors = (instructorProfiles ?? []).map((p) => ({
-        id:        p.id,
-        full_name: p.full_name,
-        email:     emailMap[p.id] ?? "",
-      }));
-    }
+    const assignedIds = new Set((psAccess ?? []).map((a) => a.trainer_id));
+    proSkillsInstructors = (allPSI ?? []).filter((p) => assignedIds.has(p.id));
+    allProSkillsInstructors = (allPSI ?? []).filter((p) => !assignedIds.has(p.id));
   }
 
   const showProSkillsPanel = isOwner || isAdmin;
@@ -111,6 +96,7 @@ export default async function CohortSettingsPage({
         <ProSkillsAccessPanel
           cohortId={id}
           instructors={proSkillsInstructors}
+          availableInstructors={allProSkillsInstructors}
         />
       )}
     </div>

@@ -257,30 +257,32 @@ export async function toggleProSkillsSubmission(
 
 export async function assignProSkillsInstructor(
   cohortId: string,
-  email: string
+  instructorId: string
 ): Promise<{ error?: string } | { success: true }> {
   try {
     await assertAdminOrOwner(cohortId);
     const svc = createServiceClient();
 
-    // Look up profile by email via the security-definer RPC
-    const { data: rows, error: rpcErr } = await svc.rpc("get_profile_by_email", {
-      p_email: email.trim().toLowerCase(),
-    });
-    if (rpcErr) return { error: rpcErr.message };
-    const profileRow = rows?.[0];
-    if (!profileRow) return { error: "No account found for this email address." };
-    if (profileRow.role !== "pro_skills_instructor") {
+    // Verify the target user is a pro_skills_instructor
+    const { data: targetProfile } = await svc
+      .from("profiles")
+      .select("role")
+      .eq("id", instructorId)
+      .single();
+    if (!targetProfile) return { error: "Instructor profile not found." };
+    if (targetProfile.role !== "pro_skills_instructor") {
       return { error: "This user does not have the pro_skills_instructor role." };
     }
 
+    // Insert — ignore if already assigned (unique constraint: cohort_id, trainer_id)
     const { error } = await svc
       .from("cohort_access")
-      .upsert(
-        { cohort_id: cohortId, trainer_id: profileRow.user_id, role: "pro_skills" },
-        { onConflict: "cohort_id,trainer_id,role" }
-      );
-    if (error) return { error: error.message };
+      .insert({ cohort_id: cohortId, trainer_id: instructorId, role: "pro_skills" });
+
+    // Unique violation (already assigned) is not an error
+    if (error && !error.message.includes("duplicate") && !error.code?.includes("23505")) {
+      return { error: error.message };
+    }
 
     revalidatePath(`/trainer/cohorts/${cohortId}/settings`);
     revalidatePath(`/pro-skills/dashboard`);
