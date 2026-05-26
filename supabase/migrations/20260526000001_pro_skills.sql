@@ -60,7 +60,7 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
     SELECT 1 FROM cohort_access
     WHERE cohort_id = p_cohort_id
       AND trainer_id = auth.uid()
-      AND role = 'pro_skills'
+      AND role::text = 'pro_skills'
   )
 $$;
 
