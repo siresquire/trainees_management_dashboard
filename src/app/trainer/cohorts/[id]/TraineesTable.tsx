@@ -370,33 +370,33 @@ export default function TraineesTable({
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {/* Table header */}
         <div className="px-6 py-4 border-b border-slate-200">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2 className="text-sm font-semibold text-slate-900">
               Trainees{" "}
               <span className="text-slate-400 font-normal">({filteredTrainees.length})</span>
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleExportCsv}
-                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 whitespace-nowrap"
                 title="Export trainee list as CSV"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Export CSV
+                <span className="hidden sm:inline">Export </span>CSV
               </button>
               <button
                 onClick={() => { setTempPassMode((v) => !v); setSelectedIds(new Set()); }}
-                className={`text-xs font-medium px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
+                className={`text-xs font-medium px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                   tempPassMode ? "bg-orange-500 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
                 }`}
                 title="Generate temporary passwords for trainees"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
-                Temp Passwords
+                <span className="hidden sm:inline">Temp </span>Passwords
               </button>
               {liveTrainees.some((t) => t.temp_password && !t.temp_password_changed_at) && (
                 <button
@@ -409,13 +409,13 @@ export default function TraineesTable({
                     ];
                     downloadCsv(rows, `${cohortCodeName}_login_details.csv`);
                   }}
-                  className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 whitespace-nowrap"
                   title="Export login details CSV for mail merge"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  Export Logins
+                  <span className="hidden sm:inline">Export </span>Logins
                 </button>
               )}
               <RefreshButton cohortId={cohortId} />
