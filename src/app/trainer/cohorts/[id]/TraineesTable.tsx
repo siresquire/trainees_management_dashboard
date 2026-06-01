@@ -144,7 +144,7 @@ export default function TraineesTable({
 
   const router = useRouter();
 
-  // Temp password mode
+  // Temp password mode (bulk)
   const [tempPassMode,      setTempPassMode]      = useState(false);
   const [selectedIds,       setSelectedIds]       = useState<Set<string>>(new Set());
   const [isGenerating,      setIsGenerating]      = useState(false);
@@ -152,6 +152,12 @@ export default function TraineesTable({
   const [showPassResults,   setShowPassResults]   = useState(false);
   const [showPassIds,       setShowPassIds]       = useState<Set<string>>(new Set());
   const [copiedId,          setCopiedId]          = useState<string | null>(null);
+
+  // Per-trainee password reset inside the detail pane
+  const [paneResetLoading,  setPaneResetLoading]  = useState(false);
+  const [paneResetPassword, setPaneResetPassword] = useState<string | null>(null);
+  const [paneResetError,    setPaneResetError]    = useState("");
+  const [paneResetCopied,   setPaneResetCopied]   = useState(false);
 
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
 
@@ -234,6 +240,10 @@ export default function TraineesTable({
     setDetailError("");
     setDetailData(null);
     setDetailView("overview");
+    // Clear any previous reset result when switching trainees
+    setPaneResetPassword(null);
+    setPaneResetError("");
+    setPaneResetCopied(false);
     getTraineeDetail(detailTraineeId, cohortId).then((res) => {
       if (res.error) setDetailError(res.error);
       else if (res.data) setDetailData(res.data);
@@ -846,7 +856,7 @@ export default function TraineesTable({
                   </p>
                 )}
                 {detailTrainee?.user_id && (
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       onClick={() => handleVisitAccount(detailTrainee)}
                       className="text-xs font-medium text-orange-600 hover:text-orange-700 border border-orange-200 hover:bg-orange-50 px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1.5"
@@ -856,6 +866,51 @@ export default function TraineesTable({
                       </svg>
                       Visit account
                     </button>
+                    <button
+                      disabled={paneResetLoading}
+                      onClick={async () => {
+                        if (!detailTrainee) return;
+                        setPaneResetLoading(true);
+                        setPaneResetPassword(null);
+                        setPaneResetError("");
+                        setPaneResetCopied(false);
+                        const res = await setTraineeTempPassword(detailTrainee.id, cohortId);
+                        setPaneResetLoading(false);
+                        if (res.error) { setPaneResetError(res.error); return; }
+                        if (res.tempPassword) setPaneResetPassword(res.tempPassword);
+                      }}
+                      className="text-xs font-medium text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      {paneResetLoading ? "Resetting…" : "Reset password"}
+                    </button>
+                  </div>
+                )}
+                {/* Reset password result */}
+                {paneResetError && (
+                  <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-2.5 py-1.5">{paneResetError}</p>
+                )}
+                {paneResetPassword && (
+                  <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1.5">
+                    <p className="text-xs font-semibold text-amber-800">Temporary password generated</p>
+                    <p className="text-xs text-amber-700">Share this with the trainee. They should change it after logging in.</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <code className="flex-1 text-sm font-mono font-bold text-amber-900 bg-amber-100 px-2.5 py-1.5 rounded-lg tracking-wider select-all">
+                        {paneResetPassword}
+                      </code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(paneResetPassword);
+                          setPaneResetCopied(true);
+                          setTimeout(() => setPaneResetCopied(false), 2000);
+                        }}
+                        className="shrink-0 text-xs font-medium text-amber-700 hover:text-amber-900 border border-amber-300 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg transition-colors"
+                      >
+                        {paneResetCopied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
