@@ -640,6 +640,17 @@ export async function addSingleTrainee(
   return { inserted: true };
 }
 
+// ── Record a trainee dashboard visit ─────────────────────────────────────────
+
+export async function recordDashboardVisit(): Promise<void> {
+  try {
+    const supabase = await createClient();
+    await supabase.rpc("record_trainee_visit");
+  } catch {
+    // Non-critical — silently ignore errors
+  }
+}
+
 // ── Trainee: mark temp password as changed when they update their own password
 
 export async function markTempPasswordChanged(): Promise<{ error?: string }> {

@@ -2274,6 +2274,8 @@ export type Database = {
           university:     string | null
           updated_at:     string
           user_id:        string | null
+          visit_count:          number
+          last_dashboard_visit: string | null
         }
         Insert: {
           amalitech_email?: string | null
@@ -2299,6 +2301,8 @@ export type Database = {
           university?:      string | null
           updated_at?:      string
           user_id?:         string | null
+          visit_count?:          number
+          last_dashboard_visit?: string | null
         }
         Update: {
           amalitech_email?: string | null
@@ -2324,6 +2328,8 @@ export type Database = {
           university?:      string | null
           updated_at?:      string
           user_id?:         string | null
+          visit_count?:          number
+          last_dashboard_visit?: string | null
         }
         Relationships: [
           {
@@ -2616,6 +2622,10 @@ export type Database = {
       auth_role: {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
+      }
+      record_trainee_visit: {
+        Args: never
+        Returns: void
       }
       get_profile_by_email: {
         Args: { p_email: string }

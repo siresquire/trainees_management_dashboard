@@ -23,10 +23,21 @@ type Trainee = {
   graduated: boolean;
   temp_password: string | null;
   temp_password_changed_at: string | null;
+  visit_count: number;
+  last_dashboard_visit: string | null;
 };
 
 function toTitleCase(str: string): string {
   return str.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function relativeTime(iso: string): string {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)   return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 type ProgressCounts = { kc: number; lab: number; video: number };
@@ -134,7 +145,7 @@ export default function TraineesTable({
   const [isPending, startTransition] = useTransition();
 
   // Sort state
-  type SortKey = "serial" | "name" | "email" | "status" | "lab" | "kc" | "attendance" | "graduated";
+  type SortKey = "serial" | "name" | "email" | "status" | "lab" | "kc" | "attendance" | "graduated" | "visits";
   const [sortKey, setSortKey] = useState<SortKey>("serial");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -214,6 +225,7 @@ export default function TraineesTable({
         case "kc":  { const pa = filteredProgressByTrainee[a.id] ?? {lab:0,kc:0,video:0}; const pb = filteredProgressByTrainee[b.id] ?? {lab:0,kc:0,video:0}; cmp = pa.kc  - pb.kc;  break; }
         case "attendance": cmp = (attendanceByTrainee[a.id] ?? 0) - (attendanceByTrainee[b.id] ?? 0); break;
         case "graduated":  cmp = (a.graduated ? 1 : 0) - (b.graduated ? 1 : 0); break;
+        case "visits":     cmp = (a.visit_count ?? 0) - (b.visit_count ?? 0); break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -541,6 +553,7 @@ export default function TraineesTable({
                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("attendance")}>Attendance <SortArrow col="attendance" /></th>
                   )}
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("graduated")}>Graduated <SortArrow col="graduated" /></th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700" onClick={() => toggleSort("visits")}>Visits <SortArrow col="visits" /></th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Account</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500">Temp Pass</th>
                   <th className="px-4 py-3 w-10" />
@@ -619,6 +632,13 @@ export default function TraineesTable({
                           )
                         ) : (
                           <GraduationToggle traineeId={t.id} graduated={t.graduated} />
+                        )}
+                      </td>
+
+                      <td className="px-4 py-2.5 text-center">
+                        <div className="text-sm font-medium text-slate-900">{t.visit_count > 0 ? t.visit_count : <span className="text-slate-300">—</span>}</div>
+                        {t.last_dashboard_visit && (
+                          <div className="text-xs text-slate-400">{relativeTime(t.last_dashboard_visit)}</div>
                         )}
                       </td>
 
@@ -853,6 +873,14 @@ export default function TraineesTable({
                     <span className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_BADGE[detailData.trainee.status] ?? "bg-slate-100 text-slate-600"}`}>
                       {detailData.trainee.status}
                     </span>
+                  </p>
+                )}
+                {detailTrainee && detailTrainee.visit_count > 0 && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {detailTrainee.visit_count} dashboard visit{detailTrainee.visit_count !== 1 ? "s" : ""}
+                    {detailTrainee.last_dashboard_visit && (
+                      <> · last {relativeTime(detailTrainee.last_dashboard_visit)}</>
+                    )}
                   </p>
                 )}
                 {detailTrainee?.user_id && (

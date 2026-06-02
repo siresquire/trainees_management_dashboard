@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import WeekProgress from "./WeekProgress";
+import VisitTracker from "@/components/VisitTracker";
 
 export default async function TraineeDashboard() {
   const supabase = await createClient();
@@ -172,6 +173,7 @@ export default async function TraineeDashboard() {
 
   return (
     <div className="space-y-6 p-4 md:p-8 max-w-4xl">
+      <VisitTracker />
       {/* Graduation banner */}
       {trainee.graduated && (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
