@@ -311,6 +311,23 @@ export default async function TraineeDashboard() {
           sub={labTasks.length > 0 ? `${Math.round((labsDone.length / labTasks.length) * 100)}%` : undefined}
           accent={isAssociate && labsDone.length === labTasks.length && labTasks.length > 0 ? "green" : "default"}
         />
+        {/* Attendance — shown for non-practitioner cohorts (practitioner gets it in the Eligibility section) */}
+        {!isPractitioner && (
+          <StatCard
+            label="Attendance"
+            value={totalSessions > 0 ? `${attended.length} / ${totalSessions}` : "—"}
+            sub={
+              overallAttPct !== null
+                ? `${Math.round(overallAttPct)}% sessions`
+                : totalSessions === 0 ? "No sessions yet" : undefined
+            }
+            accent={
+              overallAttPct === null ? "default" :
+              overallAttPct >= 80    ? "green"   :
+              overallAttPct >= 50    ? "amber"   : "red"
+            }
+          />
+        )}
         <StatCard
           label="Cohort Rank"
           value={myRank !== null ? `#${myRank}` : "—"}
@@ -593,12 +610,13 @@ function StatCard({
   label, value, sub, accent = "default",
 }: {
   label: string; value: string | number; sub?: string;
-  accent?: "default" | "green" | "amber" | "blue";
+  accent?: "default" | "green" | "amber" | "blue" | "red";
 }) {
   const subColor =
     accent === "green" ? "text-green-600" :
     accent === "amber" ? "text-amber-600" :
-    accent === "blue"  ? "text-blue-600"  : "text-slate-400";
+    accent === "blue"  ? "text-blue-600"  :
+    accent === "red"   ? "text-red-500"   : "text-slate-400";
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
