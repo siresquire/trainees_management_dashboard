@@ -140,6 +140,47 @@ export async function deleteTask(taskId: string, cohortId: string) {
   return { success: true };
 }
 
+// ── Delete all tasks for a single week ────────────────────────────────────
+
+export async function deleteWeekTasks(cohortId: string, weekNumber: number) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  try { await assertAccess(supabase, cohortId, user.id); }
+  catch { return { error: "Access denied." }; }
+
+  const { error } = await supabase
+    .from("cohort_week_tasks")
+    .delete()
+    .eq("cohort_id", cohortId)
+    .eq("week_number", weekNumber);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/trainer/cohorts/${cohortId}/tasks`);
+  return { success: true };
+}
+
+// ── Delete ALL tasks for a cohort ──────────────────────────────────────────
+
+export async function deleteAllTasks(cohortId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  try { await assertAccess(supabase, cohortId, user.id); }
+  catch { return { error: "Access denied." }; }
+
+  const { error } = await supabase
+    .from("cohort_week_tasks")
+    .delete()
+    .eq("cohort_id", cohortId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/trainer/cohorts/${cohortId}/tasks`);
+  return { success: true };
+}
+
 // ── Bulk import from Excel template ────────────────────────────────────────
 
 const TYPE_MAP: Record<string, "kc" | "lab" | "video"> = {
