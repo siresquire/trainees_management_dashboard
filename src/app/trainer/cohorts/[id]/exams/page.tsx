@@ -77,73 +77,69 @@ export default async function ExamsPage({
 
   const allCohortIds = (sameLevelCohorts ?? []).map((c) => c.id);
 
-  // svc Round 3: all trainees across same-level cohorts (must follow Round 2 to get allCohortIds)
-  const { data: allCohortTrainees } = allCohortIds.length
+  // ── Regression gate: cheap count before committing to Rounds 3-5 ─────────────
+  // Rounds 3-5 fetch data across every same-level cohort (trainees, tasks,
+  // completions, exam scores) to train the predictive model.  This is expensive.
+  // Skip it entirely unless there are already ≥10 labelled pass/fail outcomes
+  // in the system — below that threshold the model is null anyway.
+  const MIN_REGRESSION_SAMPLES = 10;
+  const { count: labelledCount } = allCohortIds.length
     ? await svc
-        .from("trainees")
-        .select("id, cohort_id")
-        .in("cohort_id", allCohortIds)
-        .is("deleted_at", null)
-    : { data: [] };
+        .from("exam_outcomes")
+        .select("id", { count: "exact", head: true })
+        .in("outcome", ["passed", "failed"])
+        .eq("attempt_no", 1)
+    : { count: 0 };
 
-  const allTraineeIds = (allCohortTrainees ?? []).map((t) => t.id);
+  const skipRegression = (labelledCount ?? 0) < MIN_REGRESSION_SAMPLES;
+
+  // svc Round 3 — only when we have enough training data
+  const allCohortTrainees: { id: string; cohort_id: string }[] = skipRegression ? [] :
+    (await svc.from("trainees").select("id, cohort_id").in("cohort_id", allCohortIds).is("deleted_at", null)).data ?? [];
+
+  const allTraineeIds = allCohortTrainees.map((t) => t.id);
   const traineeCohortMap = new Map<string, string>(
-    (allCohortTrainees ?? []).map((t) => [t.id, t.cohort_id])
+    allCohortTrainees.map((t) => [t.id, t.cohort_id])
   );
 
-  // svc Round 4: historical outcomes + quiz definitions + task definitions
-  //              all depend only on allCohortIds / allTraineeIds — run in parallel
-  const [
-    { data: historicalOutcomes },
-    { data: allQuizzes },
-    { data: allTasks },
-  ] = await Promise.all([
-    allTraineeIds.length
-      ? svc
-          .from("exam_outcomes")
-          .select("trainee_id, actual_score, outcome, attempt_no")
-          .in("trainee_id", allTraineeIds)
-          .in("outcome", ["passed", "failed"])
-          .eq("attempt_no", 1)
-      : Promise.resolve({ data: [] as { trainee_id: string; actual_score: number | null; outcome: string; attempt_no: number }[] }),
-    allCohortIds.length
-      ? svc
-          .from("exam_quizzes")
-          .select("id, cohort_id, max_score")
-          .in("cohort_id", allCohortIds)
-      : Promise.resolve({ data: [] as { id: string; cohort_id: string; max_score: number }[] }),
-    allCohortIds.length
-      ? svc
-          .from("cohort_week_tasks")
-          .select("id, cohort_id, task_type")
-          .in("cohort_id", allCohortIds)
-      : Promise.resolve({ data: [] as { id: string; cohort_id: string; task_type: string }[] }),
-  ]);
+  // svc Round 4 — only when we have enough training data
+  const [historicalOutcomes, allQuizzes, allTasks] = skipRegression
+    ? [
+        [] as { trainee_id: string; actual_score: number | null; outcome: string; attempt_no: number }[],
+        [] as { id: string; cohort_id: string; max_score: number }[],
+        [] as { id: string; cohort_id: string; task_type: string }[],
+      ]
+    : await Promise.all([
+        allTraineeIds.length
+          ? svc.from("exam_outcomes").select("trainee_id, actual_score, outcome, attempt_no").in("trainee_id", allTraineeIds).in("outcome", ["passed", "failed"]).eq("attempt_no", 1).then((r) => r.data ?? [])
+          : Promise.resolve([] as { trainee_id: string; actual_score: number | null; outcome: string; attempt_no: number }[]),
+        allCohortIds.length
+          ? svc.from("exam_quizzes").select("id, cohort_id, max_score").in("cohort_id", allCohortIds).then((r) => r.data ?? [])
+          : Promise.resolve([] as { id: string; cohort_id: string; max_score: number }[]),
+        allCohortIds.length
+          ? svc.from("cohort_week_tasks").select("id, cohort_id, task_type").in("cohort_id", allCohortIds).then((r) => r.data ?? [])
+          : Promise.resolve([] as { id: string; cohort_id: string; task_type: string }[]),
+      ]);
 
-  const labelledTraineeIds = [...new Set((historicalOutcomes ?? []).map((o) => o.trainee_id))];
-  const allQuizIds = (allQuizzes ?? []).map((q) => q.id);
-  const allTaskIds = (allTasks  ?? []).map((t) => t.id);
+  const labelledTraineeIds = [...new Set(historicalOutcomes.map((o) => o.trainee_id))];
+  const allQuizIds = allQuizzes.map((q) => q.id);
+  const allTaskIds = allTasks.map((t) => t.id);
 
-  // svc Round 5: exam scores + completions — both depend on Round 4 results, run in parallel
+  // svc Round 5 — only when we have labelled data
   const completionTargetIds = [...new Set([...traineeIds, ...labelledTraineeIds])];
-  const [{ data: allExamScores }, { data: allCompletions }] = await Promise.all([
-    allQuizIds.length && labelledTraineeIds.length
-      ? svc
-          .from("exam_scores")
-          .select("trainee_id, quiz_id, score, attempt_no")
-          .in("quiz_id", allQuizIds)
-          .in("trainee_id", labelledTraineeIds)
-          .limit(100000)
-      : Promise.resolve({ data: [] as { trainee_id: string; quiz_id: string; score: number; attempt_no: number }[] }),
-    completionTargetIds.length && allTaskIds.length
-      ? svc
-          .from("completions")
-          .select("trainee_id, task_id")
-          .in("trainee_id", completionTargetIds)
-          .in("task_id", allTaskIds)
-          .limit(100000)
-      : Promise.resolve({ data: [] as { trainee_id: string; task_id: string }[] }),
-  ]);
+  const [allExamScores, allCompletions] = skipRegression
+    ? [
+        [] as { trainee_id: string; quiz_id: string; score: number; attempt_no: number }[],
+        [] as { trainee_id: string; task_id: string }[],
+      ]
+    : await Promise.all([
+        allQuizIds.length && labelledTraineeIds.length
+          ? svc.from("exam_scores").select("trainee_id, quiz_id, score, attempt_no").in("quiz_id", allQuizIds).in("trainee_id", labelledTraineeIds).limit(100000).then((r) => r.data ?? [])
+          : Promise.resolve([] as { trainee_id: string; quiz_id: string; score: number; attempt_no: number }[]),
+        completionTargetIds.length && allTaskIds.length
+          ? svc.from("completions").select("trainee_id, task_id").in("trainee_id", completionTargetIds).in("task_id", allTaskIds).limit(100000).then((r) => r.data ?? [])
+          : Promise.resolve([] as { trainee_id: string; task_id: string }[]),
+      ]);
 
   // ── Pre-compute lookup structures ────────────────────────────────────────────
 
