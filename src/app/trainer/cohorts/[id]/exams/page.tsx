@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import ExamsClient from "./ExamsClient";
 import { fitModels, type TrainingPoint, type ModelBundle } from "@/lib/regression";
 
+// Allow up to 60 seconds — this page runs multi-round DB queries + regression.
+export const maxDuration = 60;
+
 export default async function ExamsPage({
   params,
 }: {

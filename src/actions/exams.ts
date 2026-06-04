@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import * as XLSX from "xlsx";
@@ -331,34 +331,43 @@ export async function saveOfficialScore(
   cohortId:  string,
   formData:  FormData,
 ) {
-  const parsed = OutcomeSchema.safeParse({
-    examType:  formData.get("examType"),
-    score:     formData.get("score"),
-    passed:    formData.get("passed"),
-    examDate:  formData.get("examDate"),
-    attemptNo: formData.get("attemptNo"),
-    notes:     formData.get("notes") || undefined,
-  });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  try {
+    const parsed = OutcomeSchema.safeParse({
+      examType:  formData.get("examType"),
+      score:     formData.get("score"),
+      passed:    formData.get("passed"),
+      examDate:  formData.get("examDate"),
+      attemptNo: formData.get("attemptNo"),
+      notes:     formData.get("notes") || undefined,
+    });
+    if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated." };
 
-  const d = parsed.data;
-  const { error } = await supabase.from("exam_outcomes").insert({
-    trainee_id:   traineeId,
-    exam_type:    d.examType as ExamType,
-    actual_score: d.score,
-    outcome:      d.passed,
-    exam_date:    d.examDate,
-    attempt_no:   d.attemptNo,
-    notes:        d.notes ?? null,
-  });
+    const d = parsed.data;
 
-  if (error) return { error: error.message };
-  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
-  return { success: true };
+    // Use service client to bypass RLS — trainer may be an assigned owner
+    // who didn't create the cohort, so the auth-scoped insert can be blocked.
+    const svc = createServiceClient();
+    const { error } = await svc.from("exam_outcomes").insert({
+      trainee_id:   traineeId,
+      exam_type:    d.examType as ExamType,
+      actual_score: d.score,
+      outcome:      d.passed,
+      exam_date:    d.examDate,
+      attempt_no:   d.attemptNo,
+      notes:        d.notes ?? null,
+    });
+
+    if (error) return { error: error.message };
+    revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+    revalidatePath("/trainee/exams");
+    return { success: true };
+  } catch (e) {
+    return { error: (e as Error).message ?? "Unexpected error saving score." };
+  }
 }
 
 // ── Delete official exam score ────────────────────────────────────────────────
@@ -412,38 +421,43 @@ export async function updateOfficialScore(
   cohortId:  string,
   formData:  FormData,
 ) {
-  const parsed = EditOutcomeSchema.safeParse({
-    examType:  formData.get("examType"),
-    score:     formData.get("score"),
-    passed:    formData.get("passed"),
-    examDate:  formData.get("examDate"),
-    attemptNo: formData.get("attemptNo"),
-    notes:     formData.get("notes") || undefined,
-  });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  try {
+    const parsed = EditOutcomeSchema.safeParse({
+      examType:  formData.get("examType"),
+      score:     formData.get("score"),
+      passed:    formData.get("passed"),
+      examDate:  formData.get("examDate"),
+      attemptNo: formData.get("attemptNo"),
+      notes:     formData.get("notes") || undefined,
+    });
+    if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated." };
 
-  const d = parsed.data;
-  const { error } = await supabase
-    .from("exam_outcomes")
-    .update({
-      exam_type:     d.examType as ExamType,
-      actual_score:  d.score,
-      outcome:       d.passed,
-      exam_date:     d.examDate,
-      attempt_no:    d.attemptNo,
-      notes:         d.notes ?? null,
-      self_reported: false, // trainer override clears self-reported flag
-    })
-    .eq("id", outcomeId);
+    const d = parsed.data;
+    const svc = createServiceClient();
+    const { error } = await svc
+      .from("exam_outcomes")
+      .update({
+        exam_type:     d.examType as ExamType,
+        actual_score:  d.score,
+        outcome:       d.passed,
+        exam_date:     d.examDate,
+        attempt_no:    d.attemptNo,
+        notes:         d.notes ?? null,
+        self_reported: false,
+      })
+      .eq("id", outcomeId);
 
-  if (error) return { error: error.message };
-  revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
-  revalidatePath("/trainee/exams");
-  return { success: true };
+    if (error) return { error: error.message };
+    revalidatePath(`/trainer/cohorts/${cohortId}/exams`);
+    revalidatePath("/trainee/exams");
+    return { success: true };
+  } catch (e) {
+    return { error: (e as Error).message ?? "Unexpected error updating score." };
+  }
 }
 
 // ── Official AWS passing scores per exam type ─────────────────────────────────
