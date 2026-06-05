@@ -106,6 +106,41 @@ export default async function TraineeDashboard() {
   const examPassed: boolean = (myExamOutcomes ?? []).some((o) => o.outcome === "passed");
   const stipend2Eligible: boolean = examPassed;
 
+  // ── Associate eligibility (3 × 4-week data-bundle periods) ───────────────
+  // Tier: "eligible" ≥80% both, "minimum" ≥65% both, "ineligible" <65% either, null = no data
+  type AssocTier = "eligible" | "minimum" | "ineligible" | null;
+  function assocTier(labsPct: number | null, attPct: number | null): AssocTier {
+    if (labsPct === null || attPct === null) return null;
+    const lo = Math.min(labsPct, attPct);
+    if (lo >= 80) return "eligible";
+    if (lo >= 65) return "minimum";
+    return "ineligible";
+  }
+
+  function periodPcts(fromWk: number, toWk: number) {
+    const pSessions = (sessions ?? []).filter(
+      (s) => s.week_number !== null && s.week_number >= fromWk && s.week_number <= toWk
+    );
+    const pAttended = myAttendance.filter(
+      (a) => pSessions.some((s) => s.id === a.session_id) && a.status === "present"
+    );
+    const pLabs = tasks.filter(
+      (t) => t.task_type === "lab" && t.week_number != null && t.week_number >= fromWk && t.week_number <= toWk
+    );
+    const pLabsDone = pLabs.filter((t) => completionMap.has(t.id));
+    return {
+      attPct:  pSessions.length > 0 ? (pAttended.length / pSessions.length) * 100 : null,
+      labsPct: pLabs.length > 0     ? (pLabsDone.length / pLabs.length)     * 100 : null,
+    };
+  }
+
+  const assocP1 = periodPcts(1, 4);
+  const assocP2 = periodPcts(5, 8);
+  const assocP3 = periodPcts(9, 12);
+  const assocTier1 = assocTier(assocP1.labsPct, assocP1.attPct);
+  const assocTier2 = assocTier(assocP2.labsPct, assocP2.attPct);
+  const assocTier3 = assocTier(assocP3.labsPct, assocP3.attPct);
+
   // Countdown: show whenever end_date is set and cohort hasn't ended
   const msUntilEnd = cohort?.end_date ? new Date(cohort.end_date).getTime() - Date.now() : null;
   const daysUntilEnd = msUntilEnd !== null ? Math.ceil(msUntilEnd / (24 * 60 * 60 * 1000)) : null;
@@ -385,6 +420,23 @@ export default async function TraineeDashboard() {
         </div>
       )}
 
+      {/* Eligibility cards (associate cohorts) */}
+      {isAssociate && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Eligibility</h2>
+          <p className="text-xs text-slate-400 mb-4">
+            Data bundles: ≥80% Labs &amp; Attendance per 4-week period (green) · ≥65% minimum (amber) · &lt;65% not eligible (red).
+            Stipend paid on AWS exam pass.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <AssocPeriodCard label="Data Bundle 1" period="Wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
+            <AssocPeriodCard label="Data Bundle 2" period="Wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
+            <AssocPeriodCard label="Data Bundle 3" period="Wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
+            <AssocStipendCard passed={examPassed} />
+          </div>
+        </div>
+      )}
+
       {/* Week progress */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="px-4 md:px-6 pt-4 md:pt-5 pb-0">
@@ -630,6 +682,82 @@ function StatCard({
       <p className="text-xs text-slate-500 mb-1">{label}</p>
       <p className="text-xl font-bold text-slate-900 leading-tight">{value}</p>
       {sub && <p className={`text-xs mt-0.5 ${subColor}`}>{sub}</p>}
+    </div>
+  );
+}
+
+// ── Associate eligibility — 4-week period card ────────────────────────────────
+
+type AssocTier = "eligible" | "minimum" | "ineligible" | null;
+
+function AssocPeriodCard({
+  label, period, tier, labsPct, attPct,
+}: {
+  label: string; period: string;
+  tier: AssocTier; labsPct: number | null; attPct: number | null;
+}) {
+  const bg    = tier === "eligible"   ? "bg-green-50  border-green-200"
+              : tier === "minimum"    ? "bg-amber-50  border-amber-200"
+              : tier === "ineligible" ? "bg-red-50    border-red-200"
+              :                         "bg-slate-50  border-slate-200";
+  const badge = tier === "eligible"
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Eligible</span>
+    : tier === "minimum"
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Minimum met</span>
+    : tier === "ineligible"
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Not eligible</span>
+    : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Pending</span>;
+
+  function pctColor(pct: number | null) {
+    if (pct === null) return "text-slate-400";
+    if (pct >= 80) return "text-green-600";
+    if (pct >= 65) return "text-amber-600";
+    return "text-red-500";
+  }
+
+  return (
+    <div className={`rounded-xl border p-4 ${bg}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <span className="text-xs font-semibold text-slate-700">{label}</span>
+          <p className="text-[10px] text-slate-400 mt-0.5">{period}</p>
+        </div>
+        {badge}
+      </div>
+      <div className="space-y-1.5 mt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-600">Labs</span>
+          <span className={`font-medium ${pctColor(labsPct)}`}>
+            {labsPct !== null ? `${Math.round(labsPct)}%` : "—"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-600">Attendance</span>
+          <span className={`font-medium ${pctColor(attPct)}`}>
+            {attPct !== null ? `${Math.round(attPct)}%` : "—"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssocStipendCard({ passed }: { passed: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${passed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-slate-700">Exam Stipend</span>
+        {passed
+          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Eligible</span>
+          : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Not eligible</span>
+        }
+      </div>
+      <div className="flex items-center justify-between text-xs mt-3">
+        <span className="text-slate-600">AWS exam passed</span>
+        <span className={`font-medium ${passed ? "text-green-600" : "text-red-500"}`}>
+          {passed ? "Yes" : "No"}
+        </span>
+      </div>
     </div>
   );
 }
