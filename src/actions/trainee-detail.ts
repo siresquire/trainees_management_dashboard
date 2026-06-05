@@ -166,7 +166,7 @@ export async function getTraineeDetail(
     labs_total:        weekBreakdown.reduce((s, w) => s + w.lab_total, 0),
     kcs_done:          weekBreakdown.reduce((s, w) => s + w.kc_done, 0),
     kcs_total:         weekBreakdown.reduce((s, w) => s + w.kc_total, 0),
-    sessions_attended: attendanceSessions.filter((s) => s.status === "present" || s.status === "partial").length,
+    sessions_attended: attendanceSessions.filter((s) => s.status === "present").length,
     sessions_total:    attendanceSessions.length,
   };
 

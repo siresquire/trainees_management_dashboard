@@ -7,34 +7,19 @@ type AttResult = { error?: string };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Threshold-based status for Practitioner cohorts only (minutes-based).
- * For Associate / NSP: any duration > 0 means "present" — use statusFromDuration().
- */
-function computeStatus(
-  durationMins: number,
-  presentMins: number,
-  partialMins: number,
-): "present" | "partial" | "brief" | "absent" {
-  if (durationMins <= 0) return "absent";
-  if (durationMins >= presentMins) return "present";
-  if (durationMins >= partialMins) return "partial";
-  return "brief";
+/** Binary status: only present or absent. */
+function computeStatus(durationMins: number, presentMins: number): "present" | "absent" {
+  return durationMins >= presentMins ? "present" : "absent";
 }
 
-/**
- * Practitioner → threshold-based (present / partial / brief / absent).
- * Associate / NSP → binary: any attendance = present, else absent.
- */
 function statusFromDuration(
   durationMins: number,
   isPractitioner: boolean,
   presentMins: number,
-  partialMins: number,
-): "present" | "partial" | "brief" | "absent" {
+): "present" | "absent" {
   if (durationMins <= 0) return "absent";
   if (!isPractitioner) return "present";
-  return computeStatus(durationMins, presentMins, partialMins);
+  return computeStatus(durationMins, presentMins);
 }
 
 function parseCsvLine(line: string): string[] {
@@ -108,14 +93,13 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("id, level, present_threshold_mins, partial_threshold_mins")
+    .select("id, level, present_threshold_mins")
     .eq("id", cohortId)
     .single();
   if (!cohort) return { error: "Cohort not found" };
 
   const isPractitioner = cohort.level === "practitioner";
   const presentMins    = (cohort as Record<string, unknown>).present_threshold_mins as number ?? 45;
-  const partialMins    = (cohort as Record<string, unknown>).partial_threshold_mins  as number ?? 25;
 
   const text = await file.text();
   const rows = parseCsv(text).filter((r) => r.some((c) => c.length > 0));
@@ -227,7 +211,7 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
       trainee_id:         t.id,
       duration_mins:      durationMins,
       total_session_mins: totalMins,
-      status:             statusFromDuration(durationMins, isPractitioner, presentMins, partialMins),
+      status:             statusFromDuration(durationMins, isPractitioner, presentMins),
     };
   });
 
@@ -300,18 +284,17 @@ export async function saveManualAttendance(formData: FormData): Promise<AttResul
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("level, present_threshold_mins, partial_threshold_mins")
+    .select("level, present_threshold_mins")
     .eq("id", cohortId)
     .single();
 
   const isPractitioner = cohort?.level === "practitioner";
   const presentMins    = (cohort as Record<string, unknown>)?.present_threshold_mins as number ?? 45;
-  const partialMins    = (cohort as Record<string, unknown>)?.partial_threshold_mins  as number ?? 25;
 
   const rows: {
     session_id: string; trainee_id: string;
     duration_mins: number; total_session_mins: number;
-    status: "present" | "partial" | "brief" | "absent";
+    status: "present" | "absent";
   }[] = [];
 
   for (const [key, val] of formData.entries()) {
@@ -325,7 +308,7 @@ export async function saveManualAttendance(formData: FormData): Promise<AttResul
       trainee_id:         traineeId,
       duration_mins:      dur,
       total_session_mins: totalMins,
-      status:             statusFromDuration(dur, isPractitioner, presentMins, partialMins),
+      status:             statusFromDuration(dur, isPractitioner, presentMins),
     });
   }
 
@@ -366,13 +349,12 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
 
   const { data: cohort } = await supabase
     .from("cohorts")
-    .select("level, present_threshold_mins, partial_threshold_mins")
+    .select("level, present_threshold_mins")
     .eq("id", cohortId)
     .single();
 
   const isPractitioner = cohort?.level === "practitioner";
   const presentMins    = (cohort as Record<string, unknown>)?.present_threshold_mins as number ?? 45;
-  const partialMins    = (cohort as Record<string, unknown>)?.partial_threshold_mins  as number ?? 25;
 
   const text = await file.text();
   const rows = parseCsv(text).filter((r) => r.some((c) => c.length > 0));
@@ -402,7 +384,7 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
   const attendanceRows: {
     session_id: string; trainee_id: string;
     duration_mins: number; total_session_mins: number;
-    status: "present" | "partial" | "brief" | "absent";
+    status: "present" | "absent";
   }[] = [];
 
   for (let i = 1; i < rows.length; i++) {
@@ -418,7 +400,7 @@ export async function uploadTeamsAttendanceCsv(formData: FormData): Promise<AttR
       trainee_id:         traineeId,
       duration_mins:      durationMins,
       total_session_mins: totalMins,
-      status:             statusFromDuration(durationMins, isPractitioner, presentMins, partialMins),
+      status:             statusFromDuration(durationMins, isPractitioner, presentMins),
     });
   }
 
@@ -469,8 +451,6 @@ export async function updateAttendanceThresholds(
   const present = Math.max(1, Math.round(presentMins));
   const partial = Math.max(1, Math.round(partialMins));
 
-  if (partial >= present) return { error: "Partial threshold must be less than Present threshold" };
-
   const service = createServiceClient();
 
   const { data: cohort } = await service
@@ -508,7 +488,7 @@ export async function updateAttendanceThresholds(
         id:         r.id,
         session_id: r.session_id,
         trainee_id: r.trainee_id,
-        status:     statusFromDuration(r.duration_mins, isPractitioner, present, partial),
+        status:     statusFromDuration(r.duration_mins, isPractitioner, present),
       }));
       for (let i = 0; i < updates.length; i += 500) {
         await service.from("attendance").upsert(updates.slice(i, i + 500));
@@ -538,4 +518,72 @@ export async function deleteSession(sessionId: string, cohortId: string): Promis
   revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return {};
+}
+
+// ── Recompute all attendance for a cohort ────────────────────────────────────
+// Applies the current present_threshold_mins to every existing record,
+// collapsing partial/brief into absent and fixing any records from when
+// percentage-based thresholds were in use.
+
+export async function recomputeCohortAttendance(
+  cohortId: string,
+): Promise<{ error?: string; updated?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (profile?.role !== "super_admin") {
+    const { data: access } = await supabase.from("cohort_access").select("role").eq("cohort_id", cohortId).eq("trainer_id", user.id).maybeSingle();
+    if (!access) return { error: "Access denied." };
+  }
+
+  const svc = createServiceClient();
+
+  const { data: cohort } = await svc.from("cohorts").select("level, present_threshold_mins").eq("id", cohortId).single();
+  if (!cohort) return { error: "Cohort not found." };
+
+  const isPractitioner = cohort.level === "practitioner";
+  const presentMins    = (cohort as Record<string, unknown>).present_threshold_mins as number ?? 45;
+
+  const { data: sessions } = await svc.from("sessions").select("id").eq("cohort_id", cohortId);
+  if (!sessions?.length) return { updated: 0 };
+
+  const sessionIds = sessions.map((s) => s.id);
+
+  // Fetch all attendance records with their durations
+  const { data: records } = await svc
+    .from("attendance")
+    .select("id, duration_mins")
+    .in("session_id", sessionIds);
+
+  if (!records?.length) return { updated: 0 };
+
+  // Split into two groups
+  const presentIds: string[] = [];
+  const absentIds:  string[] = [];
+  for (const r of records) {
+    const dur = (r as Record<string, unknown>).duration_mins as number ?? 0;
+    if (statusFromDuration(dur, isPractitioner, presentMins) === "present") {
+      presentIds.push(r.id);
+    } else {
+      absentIds.push(r.id);
+    }
+  }
+
+  // Two bulk updates
+  const CHUNK = 500;
+  let updated = 0;
+  for (let i = 0; i < presentIds.length; i += CHUNK) {
+    const { error } = await svc.from("attendance").update({ status: "present" }).in("id", presentIds.slice(i, i + CHUNK));
+    if (!error) updated += Math.min(CHUNK, presentIds.length - i);
+  }
+  for (let i = 0; i < absentIds.length; i += CHUNK) {
+    const { error } = await svc.from("attendance").update({ status: "absent" }).in("id", absentIds.slice(i, i + CHUNK));
+    if (!error) updated += Math.min(CHUNK, absentIds.length - i);
+  }
+
+  revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+  return { updated };
 }

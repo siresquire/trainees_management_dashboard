@@ -95,8 +95,8 @@ const PROGRESS_CONFIG = [
 
 const ATT_STATUS_BADGE: Record<string, string> = {
   present: "bg-green-100 text-green-700",
-  partial: "bg-amber-100 text-amber-700",
-  brief:   "bg-slate-100 text-slate-600",
+  partial: "bg-red-100 text-red-700",   // treat as absent
+  brief:   "bg-red-100 text-red-700",   // treat as absent
   absent:  "bg-red-100 text-red-700",
 };
 

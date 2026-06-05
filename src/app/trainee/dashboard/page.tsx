@@ -75,14 +75,14 @@ export default async function TraineeDashboard() {
   // ── Eligibility calculations ───────────────────────────────────────────────
   const THRESHOLD = 80;
 
-  const attended = myAttendance.filter((a) => a.status === "present" || a.status === "partial");
+  const attended = myAttendance.filter((a) => a.status === "present");
   const totalSessions = (sessions ?? []).length;
   const overallAttPct = totalSessions > 0 ? (attended.length / totalSessions) * 100 : null;
 
   // Weeks 1-6 attendance
   const sessions1to6 = (sessions ?? []).filter((s) => s.week_number !== null && s.week_number >= 1 && s.week_number <= 6);
   const sessionIds1to6 = new Set(sessions1to6.map((s) => s.id));
-  const attended1to6 = myAttendance.filter((a) => sessionIds1to6.has(a.session_id) && (a.status === "present" || a.status === "partial"));
+  const attended1to6 = myAttendance.filter((a) => sessionIds1to6.has(a.session_id) && a.status === "present");
   const att1to6Pct = sessions1to6.length > 0 ? (attended1to6.length / sessions1to6.length) * 100 : null;
 
   // Labs weeks 1-6

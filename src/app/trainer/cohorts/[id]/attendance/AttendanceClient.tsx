@@ -10,6 +10,7 @@ import {
   uploadTeamsAttendanceCsv,
   deleteSession,
   updateAttendanceThresholds,
+  recomputeCohortAttendance,
 } from "@/actions/attendance";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -57,22 +58,22 @@ type Props = {
 
 const STATUS_LABEL: Record<string, string> = {
   present: "Present",
-  partial: "Partial",
-  brief:   "Brief",
+  partial: "Absent",   // legacy: treat as absent
+  brief:   "Absent",   // legacy: treat as absent
   absent:  "Absent",
 };
 
 const STATUS_BADGE: Record<string, string> = {
   present: "bg-green-100  text-green-700",
-  partial: "bg-amber-100  text-amber-700",
-  brief:   "bg-slate-100  text-slate-600",
+  partial: "bg-red-100    text-red-600",   // legacy: treat as absent
+  brief:   "bg-red-100    text-red-600",   // legacy: treat as absent
   absent:  "bg-red-100    text-red-700",
 };
 
 const STATUS_DOT: Record<string, string> = {
   present: "bg-green-500",
-  partial: "bg-amber-400",
-  brief:   "bg-slate-400",
+  partial: "bg-red-400",   // legacy: treat as absent
+  brief:   "bg-red-400",   // legacy: treat as absent
   absent:  "bg-red-400",
 };
 
@@ -86,13 +87,10 @@ function clientStatus(
   durationMins: number,
   isPractitioner: boolean,
   presentMins: number,
-  partialMins: number,
 ): string {
   if (durationMins <= 0) return "absent";
   if (!isPractitioner) return "present";
-  if (durationMins >= presentMins) return "present";
-  if (durationMins >= partialMins) return "partial";
-  return "brief";
+  return durationMins >= presentMins ? "present" : "absent";
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -132,6 +130,10 @@ export default function AttendanceClient({
   const [editPresentMins, setEditPresentMins] = useState(presentMins);
   const [editPartialMins, setEditPartialMins] = useState(partialMins);
   const [thresholdError,  setThresholdError]  = useState("");
+
+  // Recompute attendance state
+  const [recomputePending, setRecomputePending] = useState(false);
+  const [recomputeMsg,     setRecomputeMsg]     = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   // Session sort / search / jump state
   const [sessionSortDir, setSessionSortDir] = useState<"desc" | "asc">("desc");
@@ -302,7 +304,7 @@ export default function AttendanceClient({
   const totalSessions = sessions.length;
   const avgAttendance = (() => {
     if (!attendance.length) return null;
-    const attended = attendance.filter((a) => a.status === "present" || a.status === "partial").length;
+    const attended = attendance.filter((a) => a.status === "present").length;
     const total    = attendance.length;
     return total > 0 ? Math.round((attended / total) * 100) : null;
   })();
@@ -322,7 +324,7 @@ export default function AttendanceClient({
             )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => { setShowZoomForm((v) => !v); setShowTeamsForm(false); }}
             className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
@@ -341,7 +343,37 @@ export default function AttendanceClient({
             </svg>
             Teams Session
           </button>
+          <button
+            disabled={recomputePending}
+            onClick={() => {
+              if (!confirm("Recompute attendance for all sessions in this cohort using the current present threshold? This will update all partial/brief records.")) return;
+              setRecomputeMsg(null);
+              setRecomputePending(true);
+              startTransition(async () => {
+                const res = await recomputeCohortAttendance(cohortId);
+                setRecomputePending(false);
+                if (res.error) {
+                  setRecomputeMsg({ type: "err", text: res.error });
+                } else {
+                  setRecomputeMsg({ type: "ok", text: `${res.updated ?? 0} records updated` });
+                  refresh();
+                }
+              });
+            }}
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50 transition-colors"
+            title="Recompute all attendance records using the current present threshold"
+          >
+            <svg className="w-3.5 h-3.5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {recomputePending ? "Recomputing…" : "Recompute attendance"}
+          </button>
         </div>
+        {recomputeMsg && (
+          <p className={`text-xs mt-1 ${recomputeMsg.type === "ok" ? "text-green-600" : "text-red-600"}`}>
+            {recomputeMsg.text}
+          </p>
+        )}
       </div>
 
       {/* ── Attendance thresholds ───────────────────────────────────────────── */}
@@ -821,7 +853,7 @@ export default function AttendanceClient({
                             Or enter manually
                             {cohortLevel === "practitioner" && (
                               <span className="font-normal text-slate-400 ml-1">
-                                (≥{presentMins} min = present · ≥{partialMins} min = partial)
+                                (≥{presentMins} min = present, otherwise = absent)
                               </span>
                             )}
                             {cohortLevel !== "practitioner" && (
@@ -851,7 +883,7 @@ export default function AttendanceClient({
                                     const parsedDur = parseInt(localVal, 10);
                                     const liveStatus = isNaN(parsedDur)
                                       ? "absent"
-                                      : clientStatus(parsedDur, cohortLevel === "practitioner", presentMins, partialMins);
+                                      : clientStatus(parsedDur, cohortLevel === "practitioner", presentMins);
 
                                     return (
                                       <tr key={t.id} className="hover:bg-slate-50">
