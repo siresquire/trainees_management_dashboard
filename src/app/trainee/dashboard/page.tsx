@@ -107,13 +107,16 @@ export default async function TraineeDashboard() {
   const stipend2Eligible: boolean = examPassed;
 
   // ── Associate eligibility (3 × 4-week data-bundle periods) ───────────────
-  // Tier: "eligible" ≥80% both, "minimum" ≥65% both, "ineligible" <65% either, null = no data
   type AssocTier = "eligible" | "minimum" | "ineligible" | null;
-  function assocTier(labsPct: number | null, attPct: number | null): AssocTier {
+  function assocTier(
+    labsPct: number | null,
+    attPct:  number | null,
+    labsElig = 80, attElig = 80,
+    labsMin  = 65, attMin  = 65,
+  ): AssocTier {
     if (labsPct === null || attPct === null) return null;
-    const lo = Math.min(labsPct, attPct);
-    if (lo >= 80) return "eligible";
-    if (lo >= 65) return "minimum";
+    if (labsPct >= labsElig && attPct >= attElig) return "eligible";
+    if (labsPct >= labsMin  && attPct >= attMin)  return "minimum";
     return "ineligible";
   }
 
@@ -140,9 +143,9 @@ export default async function TraineeDashboard() {
   const assocP1 = periodPcts(1, 4);
   const assocP2 = periodPcts(5, 8);
   const assocP3 = periodPcts(9, 12);
-  const assocTier1 = assocTier(assocP1.labsPct, assocP1.attPct);
-  const assocTier2 = assocTier(assocP2.labsPct, assocP2.attPct);
-  const assocTier3 = assocTier(assocP3.labsPct, assocP3.attPct);
+  const assocTier1 = assocTier(assocP1.labsPct, assocP1.attPct);           // labs ≥80/65%, att ≥80/65%
+  const assocTier2 = assocTier(assocP2.labsPct, assocP2.attPct);           // labs ≥80/65%, att ≥80/65%
+  const assocTier3 = assocTier(assocP3.labsPct, assocP3.attPct, 95, 80, 80, 65); // labs ≥95/80%, att ≥80/65%
 
   // Countdown: show whenever end_date is set and cohort hasn't ended
   const msUntilEnd = cohort?.end_date ? new Date(cohort.end_date).getTime() - Date.now() : null;
@@ -428,14 +431,14 @@ export default async function TraineeDashboard() {
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Eligibility</h2>
           <p className="text-xs text-slate-400 mb-4">
-            ≥80% = eligible (green) · ≥65% = minimum (amber) · &lt;65% = not eligible (red).
-            Labs are cumulative — later bundles require all prior labs to be done.
-            Attendance is per period only. Stipend paid on AWS exam pass.
+            Bundles 1 &amp; 2: ≥80% labs &amp; attendance = eligible · ≥65% = minimum.
+            Bundle 3: ≥95% labs (all wks 1–12) &amp; ≥80% attendance = eligible · ≥80% labs &amp; ≥65% attendance = minimum.
+            Labs are cumulative. Attendance is per period. Stipend paid on AWS exam pass.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <AssocPeriodCard label="Data Bundle 1" period="Labs wks 1–4 · Att wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
             <AssocPeriodCard label="Data Bundle 2" period="Labs wks 1–8 · Att wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
-            <AssocPeriodCard label="Data Bundle 3" period="Labs wks 1–12 · Att wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
+            <AssocPeriodCard label="Data Bundle 3" period="Labs wks 1–12 (≥95%) · Att wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
             <AssocStipendCard passed={examPassed} />
           </div>
         </div>
