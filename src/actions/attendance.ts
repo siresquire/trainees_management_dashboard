@@ -3,7 +3,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
-type AttResult = { error?: string };
+type AttResult = { error?: string; unmatchedCount?: number };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -145,6 +145,7 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
   const emailCol    = partHeaders.findIndex((h) => h === "email" || h.includes("user email"));
   const durationCol = partHeaders.findIndex((h) =>
     h.includes("total duration") || (h.includes("duration") && !h.includes("meeting")));
+  const nameCol     = partHeaders.findIndex((h) => h === "name" || h.includes("user name") || h.includes("full name"));
 
   if (emailCol === -1 || durationCol === -1) {
     return { error: "Participant section is missing Email or Duration columns." };
@@ -154,13 +155,14 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
   // NOTE: Do NOT filter by the "Guest" column — in Zoom, trainees who join
   // from outside the host organisation are marked Guest=Yes. Only skip rows
   // with no email at all (those are Zoom bots / unnamed participants).
-  const participants: { email: string; durationMins: number }[] = [];
+  const participants: { name: string; email: string; durationMins: number }[] = [];
   for (let i = participantHeaderIdx + 1; i < rows.length; i++) {
     const row   = rows[i];
     const email = (row[emailCol] ?? "").trim();
     const dur   = parseInt((row[durationCol] ?? "").trim(), 10);
+    const name  = nameCol !== -1 ? (row[nameCol] ?? "").trim() : "";
     if (!email) continue;   // skip bots / unnamed
-    participants.push({ email, durationMins: isNaN(dur) ? 0 : dur });
+    participants.push({ name, email, durationMins: isNaN(dur) ? 0 : dur });
   }
 
   if (!participants.length) {
@@ -201,11 +203,13 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
 
   // ── Build attendance rows for ALL active trainees ──────────────────────────
   // Trainees not found in the CSV are marked absent.
+  const matchedTraineeIds = new Set<string>();
   const attendanceRows = (trainees ?? []).map((t) => {
     const found = participants.find(
       (p) => traineeEmailMap.get(p.email.toLowerCase()) === t.id,
     );
     const durationMins = found?.durationMins ?? 0;
+    if (found) matchedTraineeIds.add(t.id);
     return {
       session_id:         session.id,
       trainee_id:         t.id,
@@ -214,6 +218,12 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
       status:             statusFromDuration(durationMins, isPractitioner, presentMins),
     };
   });
+
+  // Participants in the CSV who didn't match any cohort trainee — store so
+  // trainers can see which email they used and investigate mismatches.
+  const unmatchedParticipants = participants
+    .filter((p) => !traineeEmailMap.has(p.email.toLowerCase()))
+    .map((p) => ({ name: p.name, email: p.email, duration_mins: p.durationMins }));
 
   const { error: attErr } = await supabase
     .from("attendance")
@@ -224,9 +234,18 @@ export async function uploadZoomAttendance(formData: FormData): Promise<AttResul
     return { error: attErr.message };
   }
 
+  // Save unmatched participants (best-effort — don't fail the upload if this errors)
+  if (unmatchedParticipants.length > 0) {
+    await supabase
+      .from("sessions")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .update({ unmatched_participants: unmatchedParticipants } as any)
+      .eq("id", session.id);
+  }
+
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
-  return {};
+  return { unmatchedCount: unmatchedParticipants.length };
 }
 
 // ── Create Teams Session ──────────────────────────────────────────────────────

@@ -23,15 +23,22 @@ type Trainee = {
   amalitech_email: string | null;
 };
 
+type UnmatchedParticipant = {
+  name: string;
+  email: string;
+  duration_mins: number;
+};
+
 type Session = {
   id: string;
   platform: "zoom" | "teams";
-  topic: string;
+  topic: string | null;
   started_at: string;
   total_duration_mins: number;
   week_number: number | null;
   session_number: number | null;
   created_at: string;
+  unmatched_participants: UnmatchedParticipant[];
 };
 
 type AttendanceRow = {
@@ -187,7 +194,7 @@ export default function AttendanceClient({
     if (sessionSearch.trim()) {
       const q = sessionSearch.toLowerCase();
       arr = arr.filter((s) =>
-        s.topic.toLowerCase().includes(q) ||
+        (s.topic ?? "").toLowerCase().includes(q) ||
         String(s.week_number ?? "").includes(q) ||
         String(s.session_number ?? "").includes(q)
       );
@@ -383,9 +390,7 @@ export default function AttendanceClient({
             <span className="text-xs text-slate-600">
               Present threshold: <span className="font-semibold text-slate-800">{presentMins} min</span>
             </span>
-            <span className="text-xs text-slate-600">
-              Partial threshold: <span className="font-semibold text-slate-800">{partialMins} min</span>
-            </span>
+            <span className="text-xs text-slate-400">(≥ threshold = Present, otherwise Absent)</span>
           </div>
           {!editThresholds && (
             <button
@@ -412,21 +417,11 @@ export default function AttendanceClient({
                 className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
               />
             </label>
-            <label className="block">
-              <span className="text-[10px] font-medium text-slate-500 block mb-1">Partial (min)</span>
-              <input
-                type="number"
-                min={1}
-                value={editPartialMins}
-                onChange={(e) => setEditPartialMins(parseInt(e.target.value, 10) || 0)}
-                className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400 tabular-nums"
-              />
-            </label>
             <button
               onClick={() => {
                 setThresholdError("");
                 startTransition(async () => {
-                  const res = await updateAttendanceThresholds(cohortId, editPresentMins, editPartialMins);
+                  const res = await updateAttendanceThresholds(cohortId, editPresentMins, editPresentMins);
                   if (res.error) { setThresholdError(res.error); return; }
                   setEditThresholds(false);
                   refresh();
@@ -770,6 +765,7 @@ export default function AttendanceClient({
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-100">
                               <th className="text-left px-5 py-2.5 text-xs font-medium text-slate-500">Trainee</th>
+                              <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">Email</th>
                               <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-500">Duration</th>
                               <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-500">%</th>
                               <th className="text-right px-5 py-2.5 text-xs font-medium text-slate-500">Status</th>
@@ -781,6 +777,7 @@ export default function AttendanceClient({
                               return (
                                 <tr key={t.id} className="hover:bg-slate-50">
                                   <td className="px-5 py-2 text-sm text-slate-800">{t.full_name}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-400">{t.personal_email ?? t.amalitech_email ?? "—"}</td>
                                   <td className="px-4 py-2 text-right text-sm tabular-nums text-slate-600">
                                     {row ? `${row.duration_mins} min` : "—"}
                                   </td>
@@ -801,6 +798,39 @@ export default function AttendanceClient({
                             })}
                           </tbody>
                         </table>
+
+                        {/* ── Unmatched participants (in CSV but not in cohort) ─── */}
+                        {session.unmatched_participants?.length > 0 && (
+                          <div className="border-t border-amber-100 bg-amber-50 px-5 py-3">
+                            <p className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-1.5">
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              {session.unmatched_participants.length} participant{session.unmatched_participants.length !== 1 ? "s" : ""} in the CSV did not match any trainee email
+                            </p>
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-amber-700">
+                                  <th className="text-left pb-1 font-medium">Name (from Zoom)</th>
+                                  <th className="text-left pb-1 font-medium">Email used in Zoom</th>
+                                  <th className="text-right pb-1 font-medium">Duration</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-amber-100">
+                                {session.unmatched_participants.map((p, i) => (
+                                  <tr key={i} className="text-amber-900">
+                                    <td className="py-1 pr-4">{p.name || "—"}</td>
+                                    <td className="py-1 pr-4 font-mono text-amber-700">{p.email}</td>
+                                    <td className="py-1 text-right tabular-nums">{p.duration_mins} min</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <p className="text-[10px] text-amber-600 mt-2">
+                              If a trainee is missing above, ask them to check which email they use in Zoom and update it in their trainee profile.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
 
