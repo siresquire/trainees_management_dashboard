@@ -701,12 +701,12 @@ function AssocPeriodCard({
               : tier === "ineligible" ? "bg-red-50    border-red-200"
               :                         "bg-slate-50  border-slate-200";
   const badge = tier === "eligible"
-    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Eligible</span>
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-700">Eligible</span>
     : tier === "minimum"
-    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Minimum met</span>
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-100 text-amber-700">Min. met</span>
     : tier === "ineligible"
-    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Not eligible</span>
-    : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Pending</span>;
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-red-100 text-red-600">Not eligible</span>
+    : <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-slate-100 text-slate-500">Pending</span>;
 
   function pctColor(pct: number | null) {
     if (pct === null) return "text-slate-400";
@@ -717,12 +717,12 @@ function AssocPeriodCard({
 
   return (
     <div className={`rounded-xl border p-4 ${bg}`}>
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <span className="text-xs font-semibold text-slate-700">{label}</span>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-slate-700 leading-tight">{label}</p>
           <p className="text-[10px] text-slate-400 mt-0.5">{period}</p>
         </div>
-        {badge}
+        <div className="shrink-0">{badge}</div>
       </div>
       <div className="space-y-1.5 mt-3">
         <div className="flex items-center justify-between text-xs">
@@ -745,12 +745,14 @@ function AssocPeriodCard({
 function AssocStipendCard({ passed }: { passed: boolean }) {
   return (
     <div className={`rounded-xl border p-4 ${passed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-700">Exam Stipend</span>
-        {passed
-          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Eligible</span>
-          : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Not eligible</span>
-        }
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <p className="text-xs font-semibold text-slate-700 leading-tight">Exam Stipend</p>
+        <div className="shrink-0">
+          {passed
+            ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-700">Eligible</span>
+            : <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-red-100 text-red-600">Not eligible</span>
+          }
+        </div>
       </div>
       <div className="flex items-center justify-between text-xs mt-3">
         <span className="text-slate-600">AWS exam passed</span>
