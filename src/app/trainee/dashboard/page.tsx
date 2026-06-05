@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import WeekProgress from "./WeekProgress";
 import VisitTracker from "@/components/VisitTracker";
+import AttendanceCard from "./AttendanceCard";
 
 export default async function TraineeDashboard() {
   const supabase = await createClient();
@@ -50,8 +51,9 @@ export default async function TraineeDashboard() {
       .eq("trainee_id", trainee.id),
     supabase
       .from("sessions")
-      .select("id, week_number")
-      .eq("cohort_id", trainee.cohort_id),
+      .select("id, week_number, session_number, topic, started_at, total_duration_mins")
+      .eq("cohort_id", trainee.cohort_id)
+      .order("started_at", { ascending: false }),
     supabase
       .from("exam_outcomes")
       .select("outcome")
@@ -66,7 +68,7 @@ export default async function TraineeDashboard() {
   const { data: myAttendanceRaw } = sessionIds.length
     ? await supabase
         .from("attendance")
-        .select("session_id, status")
+        .select("session_id, status, duration_mins")
         .eq("trainee_id", trainee.id)
         .in("session_id", sessionIds)
     : { data: [] as { session_id: string; status: string }[] };
@@ -298,7 +300,7 @@ export default async function TraineeDashboard() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {hasCohortKcs && (
           <StatCard
             label="KCs Done"
@@ -313,23 +315,26 @@ export default async function TraineeDashboard() {
           sub={labTasks.length > 0 ? `${Math.round((labsDone.length / labTasks.length) * 100)}%` : undefined}
           accent={isAssociate && labsDone.length === labTasks.length && labTasks.length > 0 ? "green" : "default"}
         />
-        {/* Attendance — shown for non-practitioner cohorts (practitioner gets it in the Eligibility section) */}
-        {!isPractitioner && (
-          <StatCard
-            label="Attendance"
-            value={totalSessions > 0 ? `${attended.length} / ${totalSessions}` : "—"}
-            sub={
-              overallAttPct !== null
-                ? `${Math.round(overallAttPct)}% sessions`
-                : totalSessions === 0 ? "No sessions yet" : undefined
-            }
-            accent={
-              overallAttPct === null ? "default" :
-              overallAttPct >= 80    ? "green"   :
-              overallAttPct >= 50    ? "amber"   : "red"
-            }
-          />
-        )}
+        {/* Attendance — clickable card opens session-by-session detail panel */}
+        <AttendanceCard
+          attended={attended.length}
+          totalSessions={totalSessions}
+          overallAttPct={overallAttPct}
+          sessions={(sessions ?? []).map((s) => ({
+            id:               s.id,
+            week_number:      s.week_number,
+            session_number:   (s as Record<string, unknown>).session_number as number | null ?? null,
+            topic:            (s as Record<string, unknown>).topic as string | null ?? null,
+            started_at:       (s as Record<string, unknown>).started_at as string,
+            total_duration_mins: (s as Record<string, unknown>).total_duration_mins as number,
+          }))}
+          attendanceMap={Object.fromEntries(
+            (myAttendance).map((a) => [
+              a.session_id,
+              { status: a.status, duration_mins: (a as Record<string, unknown>).duration_mins as number ?? 0 },
+            ])
+          )}
+        />
         <StatCard
           label="Cohort Rank"
           value={myRank !== null ? `#${myRank}` : "—"}
