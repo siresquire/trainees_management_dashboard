@@ -118,14 +118,17 @@ export default async function TraineeDashboard() {
   }
 
   function periodPcts(fromWk: number, toWk: number) {
+    // Attendance: independent per period — past sessions cannot be retaken
     const pSessions = (sessions ?? []).filter(
       (s) => s.week_number !== null && s.week_number >= fromWk && s.week_number <= toWk
     );
     const pAttended = myAttendance.filter(
       (a) => pSessions.some((s) => s.id === a.session_id) && a.status === "present"
     );
+    // Labs: CUMULATIVE from week 1 — prevents gaming by skipping early labs.
+    // e.g. Bundle 2 requires ≥65% of ALL labs weeks 1–8, not just 5–8.
     const pLabs = tasks.filter(
-      (t) => t.task_type === "lab" && t.week_number != null && t.week_number >= fromWk && t.week_number <= toWk
+      (t) => t.task_type === "lab" && t.week_number != null && t.week_number >= 1 && t.week_number <= toWk
     );
     const pLabsDone = pLabs.filter((t) => completionMap.has(t.id));
     return {
@@ -425,13 +428,14 @@ export default async function TraineeDashboard() {
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Eligibility</h2>
           <p className="text-xs text-slate-400 mb-4">
-            Data bundles: ≥80% Labs &amp; Attendance per 4-week period (green) · ≥65% minimum (amber) · &lt;65% not eligible (red).
-            Stipend paid on AWS exam pass.
+            ≥80% = eligible (green) · ≥65% = minimum (amber) · &lt;65% = not eligible (red).
+            Labs are cumulative — later bundles require all prior labs to be done.
+            Attendance is per period only. Stipend paid on AWS exam pass.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <AssocPeriodCard label="Data Bundle 1" period="Wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
-            <AssocPeriodCard label="Data Bundle 2" period="Wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
-            <AssocPeriodCard label="Data Bundle 3" period="Wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
+            <AssocPeriodCard label="Data Bundle 1" period="Labs wks 1–4 · Att wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
+            <AssocPeriodCard label="Data Bundle 2" period="Labs wks 1–8 · Att wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
+            <AssocPeriodCard label="Data Bundle 3" period="Labs wks 1–12 · Att wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
             <AssocStipendCard passed={examPassed} />
           </div>
         </div>
