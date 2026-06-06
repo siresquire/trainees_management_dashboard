@@ -436,9 +436,9 @@ export default async function TraineeDashboard() {
             Labs are cumulative. Attendance is per period. Stipend paid on AWS exam pass.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <AssocPeriodCard label="Data Bundle 1" period="Labs wks 1–4 · Att wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
-            <AssocPeriodCard label="Data Bundle 2" period="Labs wks 1–8 · Att wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
-            <AssocPeriodCard label="Data Bundle 3" period="Labs wks 1–12 (≥95%) · Att wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
+            <AssocPeriodCard label="Data Bundle 1" labsRange="wks 1–4"       attRange="wks 1–4"  tier={assocTier1} labsPct={assocP1.labsPct} attPct={assocP1.attPct} />
+            <AssocPeriodCard label="Data Bundle 2" labsRange="wks 1–8"       attRange="wks 5–8"  tier={assocTier2} labsPct={assocP2.labsPct} attPct={assocP2.attPct} />
+            <AssocPeriodCard label="Data Bundle 3" labsRange="wks 1–12 ≥95%" attRange="wks 9–12" tier={assocTier3} labsPct={assocP3.labsPct} attPct={assocP3.attPct} />
             <AssocStipendCard passed={examPassed} />
           </div>
         </div>
@@ -698,9 +698,9 @@ function StatCard({
 type AssocTier = "eligible" | "minimum" | "ineligible" | null;
 
 function AssocPeriodCard({
-  label, period, tier, labsPct, attPct,
+  label, labsRange, attRange, tier, labsPct, attPct,
 }: {
-  label: string; period: string;
+  label: string; labsRange: string; attRange: string;
   tier: AssocTier; labsPct: number | null; attPct: number | null;
 }) {
   const bg    = tier === "eligible"   ? "bg-green-50  border-green-200"
@@ -725,21 +725,22 @@ function AssocPeriodCard({
   return (
     <div className={`rounded-xl border p-4 ${bg}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-slate-700 leading-tight">{label}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">{period}</p>
-        </div>
+        <p className="text-xs font-semibold text-slate-700 leading-tight">{label}</p>
         <div className="shrink-0">{badge}</div>
       </div>
-      <div className="space-y-1.5 mt-3">
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-slate-600">Labs</span>
+          <span className="text-slate-500">
+            Labs <span className="text-slate-400">({labsRange})</span>
+          </span>
           <span className={`font-medium ${pctColor(labsPct)}`}>
             {labsPct !== null ? `${Math.round(labsPct)}%` : "—"}
           </span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-slate-600">Attendance</span>
+          <span className="text-slate-500">
+            Attendance <span className="text-slate-400">({attRange})</span>
+          </span>
           <span className={`font-medium ${pctColor(attPct)}`}>
             {attPct !== null ? `${Math.round(attPct)}%` : "—"}
           </span>
