@@ -501,7 +501,6 @@ function DrilldownPanel({
   if (!cohort) return null;
 
   const top = trainees.slice(0, 10);
-  const atRisk = trainees.filter((t) => t.labPct < 50 && (t.kcPct < 50 || cohort.kcsTotal === 0));
 
   return (
     <div className="py-4 space-y-3">
@@ -554,9 +553,11 @@ function DrilldownPanel({
         </div>
       )}
 
-      {atRisk.length > 0 && (
+      {cohort.atRiskCount > 0 && (
         <p className="text-xs text-red-600 font-medium">
-          ⚠ {atRisk.length} trainee{atRisk.length !== 1 ? "s" : ""}{" "}at risk (labs &lt; 50%)
+          ⚠ {cohort.atRiskCount} trainee{cohort.atRiskCount !== 1 ? "s" : ""}{" "}at risk
+          (labs/KCs &lt; 80% of work assigned by the current week, or attendance &lt; 70%) —
+          see the cohort&apos;s Analytics page for the full list
         </p>
       )}
     </div>

@@ -18,6 +18,18 @@ export type WeekTotals = {
   kcTotal:  number;
 };
 
+export type AtRiskEntry = {
+  traineeId:    string;
+  name:         string;
+  currentWeek:  number;
+  labsDone:     number;
+  labsExpected: number;
+  kcsDone:      number;
+  kcsExpected:  number;
+  attDone:      number;
+  attTotal:     number;
+};
+
 export type CohortAnalyticsData = {
   cohortId:      string;
   cohortLevel:   string;
@@ -27,6 +39,7 @@ export type CohortAnalyticsData = {
   videoTotal:    number;
   trainees:      TraineeAnalytic[];
   weekTotals:    WeekTotals[];
+  atRisk:        AtRiskEntry[];
 };
 
 export default async function CohortAnalyticsPage({
@@ -39,6 +52,12 @@ export default async function CohortAnalyticsPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  type AtRiskRow = {
+    trainee_id: string; full_name: string; current_week: number;
+    labs_done: number; labs_expected: number;
+    kcs_done: number; kcs_expected: number;
+    att_done: number; att_total: number;
+  };
   const [
     { data: cohort },
     { data: trainees },
@@ -46,6 +65,7 @@ export default async function CohortAnalyticsPage({
     { data: summaryRows },
     { data: attendanceSummaryRows },
     { data: weekBreakdownRows },
+    { data: atRiskRows },
   ] = await Promise.all([
     supabase.from("cohorts").select("level").eq("id", id).single(),
     supabase
@@ -59,6 +79,10 @@ export default async function CohortAnalyticsPage({
     supabase.rpc("get_cohort_completion_summary", { p_cohort_id: id }),
     supabase.rpc("get_cohort_attendance_summary", { p_cohort_id: id }),
     supabase.rpc("get_cohort_completion_by_week",  { p_cohort_id: id }),
+    // Same at-risk rule as the overview and the Slack report:
+    // labs/KCs < 80% of work assigned through the current week, or att < 70%
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.rpc as any)("get_admin_at_risk", { p_cohort_ids: [id] }) as Promise<{ data: AtRiskRow[] | null }>,
   ]);
 
   const isPractitioner = cohort?.level === "practitioner";
@@ -132,6 +156,17 @@ export default async function CohortAnalyticsPage({
     videoTotal,
     trainees:      traineeAnalytics,
     weekTotals,
+    atRisk: (atRiskRows ?? []).map((r) => ({
+      traineeId:    r.trainee_id,
+      name:         r.full_name,
+      currentWeek:  Number(r.current_week),
+      labsDone:     Number(r.labs_done),
+      labsExpected: Number(r.labs_expected),
+      kcsDone:      Number(r.kcs_done),
+      kcsExpected:  Number(r.kcs_expected),
+      attDone:      Number(r.att_done),
+      attTotal:     Number(r.att_total),
+    })),
   };
 
   return <CohortAnalyticsClient data={data} />;

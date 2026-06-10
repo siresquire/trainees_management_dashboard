@@ -56,8 +56,10 @@ type SortKey = "name" | "lab" | "kc" | "att" | "overall";
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsData }) {
-  const { trainees, labTotal, kcTotal, totalSessions, weekTotals, cohortId, cohortLevel } = data;
+  const { trainees, labTotal, kcTotal, totalSessions, weekTotals, cohortId, cohortLevel, atRisk } = data;
   const isPractitioner = cohortLevel === "practitioner";
+  const atRiskIds = new Set(atRisk.map((r) => r.traineeId));
+  const currentWeek = atRisk[0]?.currentWeek ?? null;
 
   const [sortKey, setSortKey]             = useState<SortKey>("overall");
   const [sortDir, setSortDir]             = useState<"desc" | "asc">("desc");
@@ -69,7 +71,6 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
   const avgLabPct  = trainees.length > 0 ? Math.round(trainees.reduce((s, t) => s + pct(t.labDone,  labTotal), 0) / trainees.length) : 0;
   const avgKcPct   = trainees.length > 0 && kcTotal > 0 ? Math.round(trainees.reduce((s, t) => s + pct(t.kcDone,   kcTotal), 0)  / trainees.length) : 0;
   const avgAttPct  = trainees.length > 0 && totalSessions > 0 ? Math.round(trainees.reduce((s, t) => s + pct(t.attended, totalSessions), 0) / trainees.length) : 0;
-  const atRiskList = trainees.filter((t) => pct(t.labDone, labTotal) < 50 && (kcTotal === 0 || pct(t.kcDone, kcTotal) < 50));
 
   // ── Progress histogram ───────────────────────────────────────────────────────
   const BUCKETS = ["0–20%", "20–40%", "40–60%", "60–80%", "80–100%"];
@@ -110,8 +111,9 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
     labPct:     pct(t.labDone,  labTotal),
     attPct:     pct(t.attended, totalSessions),
     kcPct:      pct(t.kcDone,   kcTotal),
-    atRisk:     pct(t.labDone, labTotal) < 50 && (kcTotal === 0 || pct(t.kcDone, kcTotal) < 50),
-  })), [trainees, labTotal, kcTotal, totalSessions]);
+    atRisk:     atRiskIds.has(t.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  })), [trainees, labTotal, kcTotal, totalSessions, atRisk]);
 
   // ── Filtered + sorted leaderboard ────────────────────────────────────────────
   const filteredTrainees = useMemo(() => {
@@ -153,7 +155,7 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
         <StatCard label="Avg labs"   value={`${avgLabPct}%`}  textColor={scoreColor(avgLabPct)} />
         {!isPractitioner && <StatCard label="Avg KCs" value={`${avgKcPct}%`}  textColor={scoreColor(avgKcPct)} />}
         <StatCard label="Attendance" value={`${avgAttPct}%`} textColor={scoreColor(avgAttPct, 75, 50)} />
-        <StatCard label="At risk"    value={atRiskList.length} textColor={atRiskList.length > 0 ? "text-red-600" : "text-slate-900"} sub={atRiskList.length > 0 ? "labs < 50%" : "all on track"} />
+        <StatCard label="At risk"    value={atRisk.length} textColor={atRisk.length > 0 ? "text-red-600" : "text-slate-900"} sub={atRisk.length > 0 ? "behind by current week" : "all on track"} />
       </div>
 
       {/* ── Histogram + Scatter ── */}
@@ -392,28 +394,42 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
       </div>
 
       {/* ── At-risk panel ── */}
-      {atRiskList.length > 0 && (
+      {atRisk.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
           <h2 className="text-sm font-semibold text-red-700 mb-3">
-            At-Risk Trainees ({atRiskList.length})
+            At-Risk Trainees ({atRisk.length})
           </h2>
-          <p className="text-xs text-red-500 mb-4">Labs completion below 50%{!isPractitioner ? " and KCs below 50%" : ""} — may need intervention</p>
+          <p className="text-xs text-red-500 mb-4">
+            Below 80% of Labs{kcTotal > 0 ? " or KCs" : ""} assigned through week {currentWeek ?? "—"}, or attendance below 70% — may need intervention
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {atRiskList.map((t) => {
-              const labP = pct(t.labDone,  labTotal);
-              const kcP  = pct(t.kcDone,   kcTotal);
-              const attP = pct(t.attended, totalSessions);
+            {atRisk.map((t) => {
+              const labP = pct(t.labsDone, t.labsExpected);
+              const kcP  = pct(t.kcsDone,  t.kcsExpected);
+              const attP = pct(t.attDone,  t.attTotal);
               return (
                 <Link
-                  key={t.id}
-                  href={`/trainer/cohorts/${cohortId}/trainees/${t.id}`}
+                  key={t.traineeId}
+                  href={`/trainer/cohorts/${cohortId}/trainees/${t.traineeId}`}
                   className="bg-white border border-red-100 rounded-xl px-4 py-3 hover:border-red-300 transition-colors"
                 >
                   <p className="text-sm font-medium text-slate-800 truncate mb-1">{t.name}</p>
-                  <div className="flex gap-3 text-xs">
-                    <span className="text-red-600 font-medium">Labs {labP}%</span>
-                    {!isPractitioner && <span className="text-red-600 font-medium">KCs {kcP}%</span>}
-                    <span className={scoreColor(attP, 75, 50) + " font-medium"}>Att {attP}%</span>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                    {t.labsExpected > 0 && (
+                      <span className={`font-medium ${labP < 80 ? "text-red-600" : "text-green-600"}`}>
+                        Labs {t.labsDone}/{t.labsExpected} ({labP}%)
+                      </span>
+                    )}
+                    {t.kcsExpected > 0 && (
+                      <span className={`font-medium ${kcP < 80 ? "text-red-600" : "text-green-600"}`}>
+                        KCs {t.kcsDone}/{t.kcsExpected} ({kcP}%)
+                      </span>
+                    )}
+                    {t.attTotal > 0 && (
+                      <span className={`font-medium ${attP < 70 ? "text-red-600" : "text-green-600"}`}>
+                        Att {t.attDone}/{t.attTotal} ({attP}%)
+                      </span>
+                    )}
                   </div>
                 </Link>
               );
