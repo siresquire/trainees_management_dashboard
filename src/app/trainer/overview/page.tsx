@@ -38,6 +38,24 @@ export type WeeklyTrendRow = {
   attTotal:   number;
 };
 
+/**
+ * Fetch every page of a query that PostgREST would otherwise silently cap
+ * at ~1000 rows. Keeps requesting 1000-row pages until a short page returns.
+ */
+async function fetchAll<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null }>
+): Promise<T[]> {
+  const SIZE = 1000;
+  const all: T[] = [];
+  for (let from = 0; ; from += SIZE) {
+    const { data } = await page(from, from + SIZE - 1);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < SIZE) break;
+  }
+  return all;
+}
+
 export default async function TrainerOverviewPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -72,36 +90,46 @@ export default async function TrainerOverviewPage() {
     return <TrainerOverviewClient cohorts={[]} traineesByCohort={{}} weeklyTrend={[]} />;
   }
 
-  // Phase 1 — parallel fetches that don't depend on each other
+  // Phase 1 — parallel fetches that don't depend on each other.
+  // Task/session counts come from a per-cohort aggregate RPC (one row per
+  // cohort) instead of raw row fetches: with 13+ cohorts the raw
+  // cohort_week_tasks query exceeded PostgREST's ~1000-row cap and silently
+  // truncated, zeroing the lab/KC denominators for later cohorts.
+  type DenomRow = { cohort_id: string; lab_tasks: number; kc_tasks: number; video_tasks: number; session_count: number };
   const [
     { data: cohorts },
-    { data: tasks },
-    { data: sessions },
-    { data: traineesData },
+    { data: denomRows },
+    traineesData,
   ] = await Promise.all([
     svc.from("cohorts").select("id, name, code_name, level")
       .in("id", accessibleCohortIds)
       .eq("status", "active")
       .order("name"),
-    svc.from("cohort_week_tasks").select("id, cohort_id, task_type")
-      .in("cohort_id", accessibleCohortIds),
-    svc.from("sessions").select("id, cohort_id")
-      .in("cohort_id", accessibleCohortIds),
-    svc.from("trainees").select("id, cohort_id, full_name")
-      .is("deleted_at", null)
-      .in("status", ["active", "completed"])
-      .in("cohort_id", accessibleCohortIds),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (svc.rpc as any)("get_admin_cohort_denominators", { p_cohort_ids: accessibleCohortIds }) as Promise<{ data: DenomRow[] | null }>,
+    fetchAll<{ id: string; cohort_id: string; full_name: string }>((from, to) =>
+      svc.from("trainees").select("id, cohort_id, full_name")
+        .is("deleted_at", null)
+        .in("status", ["active", "completed"])
+        .in("cohort_id", accessibleCohortIds)
+        .order("id")
+        .range(from, to)
+    ),
   ]);
 
   const activeCohortIds = (cohorts ?? []).map((c) => c.id);
   const traineeIds = (traineesData ?? []).map((t) => t.id);
 
-  // Phase 2 — depends on traineeIds + cohortIds
+  // Phase 2 — depends on traineeIds + cohortIds.
+  // Completion/attendance RPCs return one row per trainee — paginated so a
+  // growing trainee population can never silently truncate again.
+  type CompRow = { trainee_id: string; cohort_id: string; lab_count: number; kc_count: number };
+  type AttRow  = { trainee_id: string; cohort_id: string; attended_count: number };
   const [
     { data: vouchers },
     { data: outcomes },
-    { data: completionRows },
-    { data: attendanceRows },
+    completionRows,
+    attendanceRows,
     { data: weeklyTrendRows },
   ] = await Promise.all([
     traineeIds.length
@@ -116,11 +144,15 @@ export default async function TrainerOverviewPage() {
           .in("trainee_id", traineeIds)
       : Promise.resolve({ data: [] as Array<{ trainee_id: string; outcome: string; cohort_id: unknown }> }),
     activeCohortIds.length
-      ? svc.rpc("get_admin_completion_summary", { p_cohort_ids: activeCohortIds })
-      : Promise.resolve({ data: [] as Array<{ trainee_id: string; cohort_id: string; week_number: number; lab_count: number; kc_count: number }> }),
+      ? fetchAll<CompRow>((from, to) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (svc.rpc("get_admin_completion_summary", { p_cohort_ids: activeCohortIds }) as any).range(from, to))
+      : Promise.resolve([] as CompRow[]),
     activeCohortIds.length
-      ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: activeCohortIds })
-      : Promise.resolve({ data: [] as Array<{ trainee_id: string; cohort_id: string; attended_count: number }> }),
+      ? fetchAll<AttRow>((from, to) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (svc.rpc("get_admin_attendance_summary", { p_cohort_ids: activeCohortIds }) as any).range(from, to))
+      : Promise.resolve([] as AttRow[]),
     activeCohortIds.length
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ? (svc.rpc as any)("get_admin_weekly_trend", { p_cohort_ids: activeCohortIds }) as Promise<{ data: Array<{ cohort_id: string; week_number: number; labs_done: number; labs_total: number; kcs_done: number; kcs_total: number; att_done: number; att_total: number }> | null }>
@@ -136,12 +168,13 @@ export default async function TrainerOverviewPage() {
 
   const labsTasksByCohort = new Map<string, number>();
   const kcsTasksByCohort  = new Map<string, number>();
-  for (const t of tasks ?? []) {
-    if (t.task_type === "lab") labsTasksByCohort.set(t.cohort_id, (labsTasksByCohort.get(t.cohort_id) ?? 0) + 1);
-    if (t.task_type === "kc")  kcsTasksByCohort.set(t.cohort_id,  (kcsTasksByCohort.get(t.cohort_id)  ?? 0) + 1);
+  const sessionsByCohort  = new Map<string, number>();
+  for (const d of denomRows ?? []) {
+    const cid = String(d.cohort_id);
+    labsTasksByCohort.set(cid, Number(d.lab_tasks));
+    kcsTasksByCohort.set(cid,  Number(d.kc_tasks));
+    sessionsByCohort.set(cid,  Number(d.session_count));
   }
-  const sessionsByCohort = new Map<string, number>();
-  for (const s of sessions ?? []) sessionsByCohort.set(s.cohort_id, (sessionsByCohort.get(s.cohort_id) ?? 0) + 1);
 
   const traineesByCohortCount = new Map<string, number>();
   for (const t of traineesData ?? []) traineesByCohortCount.set(t.cohort_id, (traineesByCohortCount.get(t.cohort_id) ?? 0) + 1);
