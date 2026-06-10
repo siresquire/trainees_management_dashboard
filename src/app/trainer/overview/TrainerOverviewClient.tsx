@@ -97,11 +97,22 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
     });
   }
 
-  // Series fade: hovering a legend item or series dims the others
-  const fade = (key: string) => (hoverSeries !== null && hoverSeries !== key ? 0.2 : 1);
+  // Series focus: hover dims the other series; CLICK pins the isolation
+  // (click the same series or the legend again to unpin)
+  const [pinnedSeries, setPinnedSeries] = useState<string | null>(null);
+  const activeSeries = pinnedSeries ?? hoverSeries;
+  const fade = (key: string) => (activeSeries !== null && activeSeries !== key ? 0.15 : 1);
+  const togglePin = (key: string) => setPinnedSeries((p) => (p === key ? null : key));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legendHover = (e: any) => setHoverSeries(String(e?.dataKey ?? e?.value ?? ""));
   const legendLeave = () => setHoverSeries(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const legendClick = (e: any) => togglePin(String(e?.dataKey ?? e?.value ?? ""));
+  // Cohort fade synced to the tooltip's active index — same source of truth,
+  // so the highlight can never lag behind the tooltip
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chartMove = (s: any) =>
+    setHoverIdx(s?.isTooltipActive ? (typeof s.activeTooltipIndex === "number" ? s.activeTooltipIndex : null) : null);
   const stackId = chartMode === "stacked" ? "s" : undefined;
 
   // ── Global KPIs ─────────────────────────────────────────────────────────
@@ -244,7 +255,7 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Completion Rates by Cohort</h2>
-              <p className="text-xs text-slate-400">Click a bar group to see trainee breakdown below · hover the legend to isolate a metric</p>
+              <p className="text-xs text-slate-400">Click a bar or legend item to isolate that metric (click again to reset) · click a table row below for trainee breakdown</p>
             </div>
             <div className="flex gap-1 shrink-0">
               {(["grouped", "stacked"] as const).map((m) => (
@@ -261,13 +272,19 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
             </div>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={barData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+            <BarChart
+              data={barData}
+              margin={{ top: 4, right: 16, bottom: 4, left: 0 }}
+              accessibilityLayer={false}
+              onMouseMove={chartMove}
+              onMouseLeave={() => setHoverIdx(null)}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis unit="%" domain={chartMode === "stacked" ? [0, 300] : [0, 100]} tick={{ fontSize: 11 }} />
-              <Tooltip content={<CohortTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
-                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
+              <Tooltip content={<CohortTooltip />} isAnimationActive={false} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} onClick={legendClick} />
               {(["Labs", "KCs", "Attendance"] as const).map((key) => (
                 <Bar
                   key={key}
@@ -277,12 +294,11 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
                   radius={chartMode === "stacked" ? undefined : [4, 4, 0, 0]}
                   style={{ cursor: "pointer" }}
                   opacity={fade(key)}
-                  onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }}
-                  onMouseEnter={(_, i) => setHoverIdx(i)}
-                  onMouseLeave={() => setHoverIdx(null)}
+                  isAnimationActive={false}
+                  onClick={() => togglePin(key)}
                 >
                   {barData.map((_, i) => (
-                    <Cell key={i} fillOpacity={hoverIdx === null || hoverIdx === i ? 1 : 0.25} />
+                    <Cell key={i} fillOpacity={hoverIdx === null || hoverIdx === i ? 1 : 0.3} />
                   ))}
                 </Bar>
               ))}
@@ -297,16 +313,16 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Weekly Progress Trend</h2>
           <p className="text-xs text-slate-400 mb-4">Average completion per training week across the selected cohorts</p>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={trendData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+            <LineChart data={trendData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }} accessibilityLayer={false}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v) => (v === null ? "—" : `${v}%`)} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
-                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
-              <Line type="monotone" dataKey="Labs"       stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Labs")} />
-              <Line type="monotone" dataKey="KCs"        stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("KCs")} />
-              <Line type="monotone" dataKey="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Attendance")} />
+              <Tooltip formatter={(v) => (v === null ? "—" : `${v}%`)} isAnimationActive={false} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} onClick={legendClick} />
+              <Line type="monotone" dataKey="Labs"       stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Labs")}       isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("Labs")} />
+              <Line type="monotone" dataKey="KCs"        stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("KCs")}        isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("KCs")} />
+              <Line type="monotone" dataKey="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Attendance")} isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("Attendance")} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -318,12 +334,13 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           <h2 className="text-sm font-semibold text-slate-900 mb-4">Voucher Issuance</h2>
           {totalTrainees > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
+              <PieChart accessibilityLayer={false}>
                 <Pie data={voucherPie} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value"
+                  isAnimationActive={false}
                   label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
                   {voucherPie.map((_, i) => <Cell key={i} fill={i === 0 ? "#f97316" : "#e2e8f0"} />)}
                 </Pie>
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -335,12 +352,13 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           <h2 className="text-sm font-semibold text-slate-900 mb-4">Exam Outcomes</h2>
           {outcomePie.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
+              <PieChart accessibilityLayer={false}>
                 <Pie data={outcomePie} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value"
+                  isAnimationActive={false}
                   label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
                   {outcomePie.map((_, i) => <Cell key={i} fill={outcomePieColors[i] ?? COLORS[i]} />)}
                 </Pie>
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
@@ -356,16 +374,16 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Cohort Performance Comparison</h2>
           <p className="text-xs text-slate-400 mb-4">Labs, KCs, and Attendance completion % across cohorts</p>
           <ResponsiveContainer width="100%" height={Math.max(180, matrixData.length * (chartMode === "stacked" ? 36 : 64))}>
-            <BarChart data={matrixData} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 80 }}>
+            <BarChart data={matrixData} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 80 }} accessibilityLayer={false}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
               <XAxis type="number" domain={chartMode === "stacked" ? [0, 300] : [0, 100]} unit="%" tick={{ fontSize: 11 }} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={76} />
-              <Tooltip content={<CohortTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
-                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
-              <Bar dataKey="Labs"       stackId={stackId} fill="#f97316" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Labs")} />
-              <Bar dataKey="KCs"        stackId={stackId} fill="#8b5cf6" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("KCs")} />
-              <Bar dataKey="Attendance" stackId={stackId} fill="#10b981" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Attendance")} />
+              <Tooltip content={<CohortTooltip />} isAnimationActive={false} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} onClick={legendClick} />
+              <Bar dataKey="Labs"       stackId={stackId} fill="#f97316" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Labs")}       isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("Labs")} />
+              <Bar dataKey="KCs"        stackId={stackId} fill="#8b5cf6" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("KCs")}        isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("KCs")} />
+              <Bar dataKey="Attendance" stackId={stackId} fill="#10b981" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Attendance")} isAnimationActive={false} style={{ cursor: "pointer" }} onClick={() => togglePin("Attendance")} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -387,6 +405,7 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
                 <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">Labs %</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">KCs %</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">Attendance %</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">At risk</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">Vouchers</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-slate-500">Pass / Fail</th>
                 <th className="px-4 py-3" />
@@ -423,6 +442,11 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
                       <td className={`px-4 py-3 text-right text-xs tabular-nums font-medium ${color(labPct)}`}>{c.labsTotal > 0 ? `${labPct}%` : "—"}</td>
                       <td className={`px-4 py-3 text-right text-xs tabular-nums font-medium ${color(kcPct)}`}>{c.kcsTotal > 0 ? `${kcPct}%` : "—"}</td>
                       <td className={`px-4 py-3 text-right text-xs tabular-nums font-medium ${color(attPct, 75, 50)}`}>{c.sessionsTotal > 0 ? `${attPct}%` : "—"}</td>
+                      <td className="px-4 py-3 text-right text-xs tabular-nums">
+                        {c.atRiskCount > 0
+                          ? <span className="font-semibold text-red-500">{c.atRiskCount}</span>
+                          : <span className="text-green-600 font-medium">0</span>}
+                      </td>
                       <td className="px-4 py-3 text-right text-xs tabular-nums text-slate-600">{c.vouchersIssued}</td>
                       <td className="px-4 py-3 text-right text-xs tabular-nums">
                         {c.examPassed > 0 || c.examFailed > 0
@@ -443,7 +467,7 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
                     {/* Inline drilldown panel */}
                     {isSelected && (
                       <tr>
-                        <td colSpan={9} className="px-4 py-0 bg-orange-50 border-b border-orange-100">
+                        <td colSpan={10} className="px-4 py-0 bg-orange-50 border-b border-orange-100">
                           <DrilldownPanel cohort={selectedCohort} trainees={drilldownTrainees} />
                         </td>
                       </tr>

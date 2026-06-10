@@ -18,6 +18,7 @@ export type TrainerOverviewCohort = {
   vouchersIssued:  number;
   examPassed:      number;
   examFailed:      number;
+  atRiskCount:     number;
 };
 
 export type TraineeSummary = {
@@ -133,6 +134,7 @@ export default async function TrainerOverviewPage() {
     attendanceRows,
     { data: weeklyTrendRows },
     trainerNameByCohort,
+    atRiskRows,
   ] = await Promise.all([
     traineeIds.length
       ? svc.from("vouchers")
@@ -182,7 +184,20 @@ export default async function TrainerOverviewPage() {
       }
       return map;
     })(),
+    // At-risk trainees (behind ≥50% on labs/KCs expected by the current week,
+    // or below 50% attendance) — counted per cohort for the summary table
+    activeCohortIds.length
+      ? fetchAll<{ cohort_id: string; trainee_id: string }>((from, to) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (svc.rpc as any)("get_admin_at_risk", { p_cohort_ids: activeCohortIds }).range(from, to))
+      : Promise.resolve([] as Array<{ cohort_id: string; trainee_id: string }>),
   ]);
+
+  const atRiskByCohort = new Map<string, number>();
+  for (const r of atRiskRows) {
+    const cid = String(r.cohort_id);
+    atRiskByCohort.set(cid, (atRiskByCohort.get(cid) ?? 0) + 1);
+  }
 
   // Defensive: only count rows belonging to known active trainees. Protects
   // against soft-deleted duplicates inflating totals and against truncated
@@ -273,6 +288,7 @@ export default async function TrainerOverviewPage() {
         vouchersIssued:   vouchersByCohort.get(c.id) ?? 0,
         examPassed:       passedByCohort.get(c.id)   ?? 0,
         examFailed:       failedByCohort.get(c.id)   ?? 0,
+        atRiskCount:      atRiskByCohort.get(c.id)   ?? 0,
       };
     })
     // Alphabetical by the code name shown in charts/tables — easier lookup
