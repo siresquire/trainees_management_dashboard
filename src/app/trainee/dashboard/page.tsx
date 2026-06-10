@@ -18,6 +18,7 @@ export default async function TraineeDashboard() {
     .select("id, full_name, cohort_id, status, graduated, cohorts(name, level, cohort_subtype, start_date, end_date, training_weeks, present_threshold_mins)")
     .eq("user_id", user.id)
     .eq("status", "active")
+    .is("deleted_at", null)
     .single();
 
   if (!trainee) {
