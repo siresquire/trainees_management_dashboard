@@ -27,6 +27,17 @@ export type TraineeSummary = {
   attendPct:  number;
 };
 
+export type WeeklyTrendRow = {
+  cohortId:   string;
+  week:       number;
+  labsDone:   number;
+  labsTotal:  number;
+  kcsDone:    number;
+  kcsTotal:   number;
+  attDone:    number;
+  attTotal:   number;
+};
+
 export default async function TrainerOverviewPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -58,7 +69,7 @@ export default async function TrainerOverviewPage() {
   }
 
   if (!accessibleCohortIds.length) {
-    return <TrainerOverviewClient cohorts={[]} traineesByCohort={{}} />;
+    return <TrainerOverviewClient cohorts={[]} traineesByCohort={{}} weeklyTrend={[]} />;
   }
 
   // Phase 1 — parallel fetches that don't depend on each other
@@ -91,6 +102,7 @@ export default async function TrainerOverviewPage() {
     { data: outcomes },
     { data: completionRows },
     { data: attendanceRows },
+    { data: weeklyTrendRows },
   ] = await Promise.all([
     traineeIds.length
       ? svc.from("vouchers")
@@ -109,7 +121,16 @@ export default async function TrainerOverviewPage() {
     activeCohortIds.length
       ? svc.rpc("get_admin_attendance_summary", { p_cohort_ids: activeCohortIds })
       : Promise.resolve({ data: [] as Array<{ trainee_id: string; cohort_id: string; attended_count: number }> }),
+    activeCohortIds.length
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? (svc.rpc as any)("get_admin_weekly_trend", { p_cohort_ids: activeCohortIds }) as Promise<{ data: Array<{ cohort_id: string; week_number: number; labs_done: number; labs_total: number; kcs_done: number; kcs_total: number; att_done: number; att_total: number }> | null }>
+      : Promise.resolve({ data: [] as Array<{ cohort_id: string; week_number: number; labs_done: number; labs_total: number; kcs_done: number; kcs_total: number; att_done: number; att_total: number }> }),
   ]);
+
+  // Defensive: only count rows belonging to known active trainees. Protects
+  // against soft-deleted duplicates inflating totals and against truncated
+  // RPC result sets (also enforced server-side after migration 20260606000002).
+  const validTraineeIds = new Set(traineeIds);
 
   // ── Build per-cohort aggregates ──────────────────────────────────────────
 
@@ -128,8 +149,9 @@ export default async function TrainerOverviewPage() {
   // Per-trainee completion totals (summed across weeks)
   const labByTrainee = new Map<string, { cohortId: string; lab: number; kc: number }>();
   for (const row of completionRows ?? []) {
-    const cid = String(row.cohort_id);
     const tid = row.trainee_id;
+    if (!validTraineeIds.has(tid)) continue; // skip deleted/dropped trainees
+    const cid = String(row.cohort_id);
     const curr = labByTrainee.get(tid) ?? { cohortId: cid, lab: 0, kc: 0 };
     labByTrainee.set(tid, { cohortId: cid, lab: curr.lab + Number(row.lab_count), kc: curr.kc + Number(row.kc_count) });
   }
@@ -145,6 +167,7 @@ export default async function TrainerOverviewPage() {
   // Per-trainee attendance
   const attendByTrainee = new Map<string, number>();
   for (const row of attendanceRows ?? []) {
+    if (!validTraineeIds.has(row.trainee_id)) continue; // skip deleted/dropped trainees
     attendByTrainee.set(row.trainee_id, (attendByTrainee.get(row.trainee_id) ?? 0) + Number(row.attended_count));
   }
 
@@ -215,5 +238,22 @@ export default async function TrainerOverviewPage() {
     traineesByCohort[c.id] = list;
   }
 
-  return <TrainerOverviewClient cohorts={overviewCohorts} traineesByCohort={traineesByCohort} />;
+  const weeklyTrend: WeeklyTrendRow[] = (weeklyTrendRows ?? []).map((r) => ({
+    cohortId:  String(r.cohort_id),
+    week:      Number(r.week_number),
+    labsDone:  Number(r.labs_done),
+    labsTotal: Number(r.labs_total),
+    kcsDone:   Number(r.kcs_done),
+    kcsTotal:  Number(r.kcs_total),
+    attDone:   Number(r.att_done),
+    attTotal:  Number(r.att_total),
+  }));
+
+  return (
+    <TrainerOverviewClient
+      cohorts={overviewCohorts}
+      traineesByCohort={traineesByCohort}
+      weeklyTrend={weeklyTrend}
+    />
+  );
 }

@@ -4,15 +4,16 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
-import type { TrainerOverviewCohort, TraineeSummary } from "./page";
+import type { TrainerOverviewCohort, TraineeSummary, WeeklyTrendRow } from "./page";
 
 const COLORS = ["#f97316", "#8b5cf6", "#10b981", "#3b82f6", "#f43f5e", "#06b6d4", "#84cc16"];
 
 function pct(done: number, total: number) {
   if (total === 0) return 0;
-  return Math.round((done / total) * 100);
+  // Clamp at 100 — protects against legacy data anomalies inflating ratios
+  return Math.min(100, Math.round((done / total) * 100));
 }
 
 function color(v: number, threshHi = 80, threshMid = 60) {
@@ -39,9 +40,10 @@ type Level = "all" | "practitioner" | "associate";
 type Props = {
   cohorts: TrainerOverviewCohort[];
   traineesByCohort: Record<string, TraineeSummary[]>;
+  weeklyTrend: WeeklyTrendRow[];
 };
 
-export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Props) {
+export default function TrainerOverviewClient({ cohorts, traineesByCohort, weeklyTrend }: Props) {
   const [levelFilter, setLevelFilter]       = useState<Level>("all");
   const [selectedCohortId, setSelectedCohortId] = useState<string | null>(null);
 
@@ -92,6 +94,28 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Pro
 
   const selectedCohort = filtered.find((c) => c.id === selectedCohortId) ?? null;
   const drilldownTrainees = selectedCohortId ? (traineesByCohort[selectedCohortId] ?? []) : [];
+
+  // ── Weekly trend line chart (aggregated across filtered cohorts) ──────────
+  const trendData = useMemo(() => {
+    const filteredIds = new Set(filtered.map((c) => c.id));
+    const byWeek = new Map<number, { labsDone: number; labsTotal: number; kcsDone: number; kcsTotal: number; attDone: number; attTotal: number }>();
+    for (const r of weeklyTrend) {
+      if (!filteredIds.has(r.cohortId)) continue;
+      const w = byWeek.get(r.week) ?? { labsDone: 0, labsTotal: 0, kcsDone: 0, kcsTotal: 0, attDone: 0, attTotal: 0 };
+      w.labsDone += r.labsDone; w.labsTotal += r.labsTotal;
+      w.kcsDone  += r.kcsDone;  w.kcsTotal  += r.kcsTotal;
+      w.attDone  += r.attDone;  w.attTotal  += r.attTotal;
+      byWeek.set(r.week, w);
+    }
+    return [...byWeek.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([week, w]) => ({
+        name:       `Wk ${week}`,
+        Labs:       w.labsTotal > 0 ? pct(w.labsDone, w.labsTotal) : null,
+        KCs:        w.kcsTotal  > 0 ? pct(w.kcsDone,  w.kcsTotal)  : null,
+        Attendance: w.attTotal  > 0 ? pct(w.attDone,  w.attTotal)  : null,
+      }));
+  }, [weeklyTrend, filtered]);
 
   return (
     <div className="p-6 md:p-8 space-y-8">
@@ -147,6 +171,26 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort }: Pro
               <Bar dataKey="Attendance" fill="#10b981" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
                 onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }} />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ── Weekly progress trend line chart ── */}
+      {trendData.length > 1 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Weekly Progress Trend</h2>
+          <p className="text-xs text-slate-400 mb-4">Average completion per training week across the selected cohorts</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={trendData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => (v === null ? "—" : `${v}%`)} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="Labs"       stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line type="monotone" dataKey="KCs"        stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line type="monotone" dataKey="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       )}
@@ -361,7 +405,7 @@ function DrilldownPanel({
 
       {atRisk.length > 0 && (
         <p className="text-xs text-red-600 font-medium">
-          ⚠ {atRisk.length} trainee{atRisk.length !== 1 ? "s" : ""} at risk (labs &lt; 50%)
+          ⚠ {atRisk.length} trainee{atRisk.length !== 1 ? "s" : ""}{" "}at risk (labs &lt; 50%)
         </p>
       )}
     </div>
