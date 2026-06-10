@@ -19,6 +19,7 @@ export default async function TakeQuizPage({
     .select("id, cohort_id, full_name")
     .eq("user_id", user.id)
     .eq("status", "active")
+    .is("deleted_at", null)
     .single();
   if (!trainee) redirect("/trainee/quizzes");
 
