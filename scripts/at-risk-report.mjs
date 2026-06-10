@@ -1,10 +1,10 @@
 /**
  * At-Risk Trainee Report → Slack
  *
- * Flags trainees who, measured against the cohort's CURRENT week:
- *   • have completed < 50% of lab tasks assigned so far, or
- *   • have completed < 50% of KC tasks assigned so far, or
- *   • have attended  < 50% of sessions held so far
+ * Flags trainees who, measured cumulatively through the cohort's CURRENT week:
+ *   • have completed < 80% of lab tasks assigned so far, or
+ *   • have completed < 80% of KC tasks assigned so far, or
+ *   • have attended  < 70% of sessions held so far
  * and posts a per-cohort summary to a Slack channel via incoming webhook.
  *
  * Heavy lifting is done by the get_admin_at_risk() Postgres function
@@ -107,7 +107,7 @@ async function main() {
     type: "context",
     elements: [{
       type: "mrkdwn",
-      text: "Flagged when below *50%* of Labs or KCs expected by the cohort's current week, or below *50%* attendance. 🧪 = labs behind · 📝 = KCs behind · 📅 = low attendance",
+      text: "Flagged when below *80%* of Labs or KCs assigned cumulatively through the cohort's current week, or below *70%* attendance. 🧪 = labs behind · 📝 = KCs behind · 📅 = low attendance",
     }],
   });
 
@@ -137,9 +137,9 @@ async function main() {
       const kcP  = pct(t.kcs_done,  t.kcs_expected);
       const attP = pct(t.att_done,  t.att_total);
       const flags = [
-        labP !== null && labP < 50 ? "🧪" : "",
-        kcP  !== null && kcP  < 50 ? "📝" : "",
-        attP !== null && attP < 50 ? "📅" : "",
+        labP !== null && labP < 80 ? "🧪" : "",
+        kcP  !== null && kcP  < 80 ? "📝" : "",
+        attP !== null && attP < 70 ? "📅" : "",
       ].join("");
       const parts = [];
       if (labP !== null) parts.push(`Labs ${t.labs_done}/${t.labs_expected} (${labP}%)`);
