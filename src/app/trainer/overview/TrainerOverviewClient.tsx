@@ -35,6 +35,32 @@ function StatCard({ label, value, sub, textColor = "text-slate-900" }: {
   );
 }
 
+/** Chart tooltip showing code name, full cohort name, and the trainer responsible. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function CohortTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const meta = payload[0]?.payload as { fullName?: string | null; trainer?: string | null } | undefined;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs max-w-[260px]">
+      <p className="font-semibold text-slate-900">{label}</p>
+      {meta?.fullName && meta.fullName !== label && (
+        <p className="text-slate-500 mt-0.5">{meta.fullName}</p>
+      )}
+      {meta?.trainer && (
+        <p className="text-slate-400 mt-0.5">Trainer: <span className="text-slate-600 font-medium">{meta.trainer}</span></p>
+      )}
+      <div className="mt-1.5 space-y-0.5">
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {payload.map((p: any) => (
+          <p key={String(p.dataKey)} style={{ color: p.color }} className="font-medium">
+            {p.name}: {p.value === null || p.value === undefined ? "—" : `${p.value}%`}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type Level = "all" | "practitioner" | "associate";
 
 type Props = {
@@ -44,13 +70,39 @@ type Props = {
 };
 
 export default function TrainerOverviewClient({ cohorts, traineesByCohort, weeklyTrend }: Props) {
-  const [levelFilter, setLevelFilter]       = useState<Level>("all");
+  const [levelFilter, setLevelFilter]           = useState<Level>("all");
   const [selectedCohortId, setSelectedCohortId] = useState<string | null>(null);
+  const [cohortFilter, setCohortFilter]         = useState<Set<string>>(new Set());
+  const [chartMode, setChartMode]               = useState<"grouped" | "stacked">("grouped");
+  const [hoverSeries, setHoverSeries]           = useState<string | null>(null);
+  const [hoverIdx, setHoverIdx]                 = useState<number | null>(null);
 
-  const filtered = useMemo(
+  // Cohorts matching the level filter — drives the cohort-chip list
+  const levelCohorts = useMemo(
     () => levelFilter === "all" ? cohorts : cohorts.filter((c) => c.level === levelFilter),
     [cohorts, levelFilter]
   );
+
+  // Final working set: level filter + (optional) specific-cohort selection
+  const filtered = useMemo(
+    () => cohortFilter.size === 0 ? levelCohorts : levelCohorts.filter((c) => cohortFilter.has(c.id)),
+    [levelCohorts, cohortFilter]
+  );
+
+  function toggleCohort(id: string) {
+    setCohortFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Series fade: hovering a legend item or series dims the others
+  const fade = (key: string) => (hoverSeries !== null && hoverSeries !== key ? 0.2 : 1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const legendHover = (e: any) => setHoverSeries(String(e?.dataKey ?? e?.value ?? ""));
+  const legendLeave = () => setHoverSeries(null);
+  const stackId = chartMode === "stacked" ? "s" : undefined;
 
   // ── Global KPIs ─────────────────────────────────────────────────────────
   const totalTrainees = filtered.reduce((s, c) => s + c.totalTrainees, 0);
@@ -66,6 +118,8 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
   const barData = filtered.map((c) => ({
     name:       c.codeName,
     id:         c.id,
+    fullName:   c.name,
+    trainer:    c.trainerName,
     Labs:       pct(c.labsDoneTotal, c.labsTotal),
     KCs:        pct(c.kcsDoneTotal,  c.kcsTotal),
     Attendance: pct(c.sessionsAttended, c.sessionsTotal),
@@ -87,6 +141,8 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
   const matrixData = filtered.map((c) => ({
     name:       c.codeName,
     id:         c.id,
+    fullName:   c.name,
+    trainer:    c.trainerName,
     Labs:       pct(c.labsDoneTotal, c.labsTotal),
     KCs:        pct(c.kcsDoneTotal,  c.kcsTotal),
     Attendance: pct(c.sessionsAttended, c.sessionsTotal),
@@ -130,7 +186,7 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           {(["all", "practitioner", "associate"] as Level[]).map((l) => (
             <button
               key={l}
-              onClick={() => setLevelFilter(l)}
+              onClick={() => { setLevelFilter(l); setCohortFilter(new Set()); }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors ${
                 levelFilter === l ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
@@ -140,6 +196,36 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
           ))}
         </div>
       </div>
+
+      {/* ── Cohort filter chips — narrow the whole page to specific cohorts ── */}
+      {levelCohorts.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5 -mt-4">
+          <span className="text-xs text-slate-400 mr-1">Cohorts:</span>
+          <button
+            onClick={() => setCohortFilter(new Set())}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+              cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            }`}
+          >
+            All
+          </button>
+          {levelCohorts.map((c) => {
+            const on = cohortFilter.has(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => toggleCohort(c.id)}
+                title={`${c.name}${c.trainerName ? ` · ${c.trainerName}` : ""}`}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  on ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {c.codeName}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── KPI cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
@@ -155,21 +241,51 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
       {/* ── Completion bar chart (clickable bars) ── */}
       {barData.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <h2 className="text-sm font-semibold text-slate-900 mb-1">Completion Rates by Cohort</h2>
-          <p className="text-xs text-slate-400 mb-4">Click a bar group to see trainee breakdown below</p>
-          <ResponsiveContainer width="100%" height={280}>
+          <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Completion Rates by Cohort</h2>
+              <p className="text-xs text-slate-400">Click a bar group to see trainee breakdown below · hover the legend to isolate a metric</p>
+            </div>
+            <div className="flex gap-1 shrink-0">
+              {(["grouped", "stacked"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setChartMode(m)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize transition-colors ${
+                    chartMode === m ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
             <BarChart data={barData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v) => `${v}%`} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Labs"       fill="#f97316" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
-                onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }} />
-              <Bar dataKey="KCs"        fill="#8b5cf6" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
-                onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }} />
-              <Bar dataKey="Attendance" fill="#10b981" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
-                onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }} />
+              <YAxis unit="%" domain={chartMode === "stacked" ? [0, 300] : [0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip content={<CohortTooltip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
+              {(["Labs", "KCs", "Attendance"] as const).map((key) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  stackId={stackId}
+                  fill={key === "Labs" ? "#f97316" : key === "KCs" ? "#8b5cf6" : "#10b981"}
+                  radius={chartMode === "stacked" ? undefined : [4, 4, 0, 0]}
+                  style={{ cursor: "pointer" }}
+                  opacity={fade(key)}
+                  onClick={(d) => { const id = (d.payload as { id?: string })?.id; if (id) setSelectedCohortId((p) => (p === id ? null : id)); }}
+                  onMouseEnter={(_, i) => setHoverIdx(i)}
+                  onMouseLeave={() => setHoverIdx(null)}
+                >
+                  {barData.map((_, i) => (
+                    <Cell key={i} fillOpacity={hoverIdx === null || hoverIdx === i ? 1 : 0.25} />
+                  ))}
+                </Bar>
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -186,10 +302,11 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => (v === null ? "—" : `${v}%`)} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="Labs"       stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-              <Line type="monotone" dataKey="KCs"        stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-              <Line type="monotone" dataKey="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
+              <Line type="monotone" dataKey="Labs"       stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Labs")} />
+              <Line type="monotone" dataKey="KCs"        stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("KCs")} />
+              <Line type="monotone" dataKey="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} connectNulls strokeOpacity={fade("Attendance")} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -238,16 +355,17 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Cohort Performance Comparison</h2>
           <p className="text-xs text-slate-400 mb-4">Labs, KCs, and Attendance completion % across cohorts</p>
-          <ResponsiveContainer width="100%" height={Math.max(180, matrixData.length * 64)}>
+          <ResponsiveContainer width="100%" height={Math.max(180, matrixData.length * (chartMode === "stacked" ? 36 : 64))}>
             <BarChart data={matrixData} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 80 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+              <XAxis type="number" domain={chartMode === "stacked" ? [0, 300] : [0, 100]} unit="%" tick={{ fontSize: 11 }} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={76} />
-              <Tooltip formatter={(v) => `${v}%`} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Labs"       fill="#f97316" radius={[0, 4, 4, 0]} barSize={14} />
-              <Bar dataKey="KCs"        fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={14} />
-              <Bar dataKey="Attendance" fill="#10b981" radius={[0, 4, 4, 0]} barSize={14} />
+              <Tooltip content={<CohortTooltip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }}
+                onMouseEnter={legendHover} onMouseLeave={legendLeave} />
+              <Bar dataKey="Labs"       stackId={stackId} fill="#f97316" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Labs")} />
+              <Bar dataKey="KCs"        stackId={stackId} fill="#8b5cf6" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("KCs")} />
+              <Bar dataKey="Attendance" stackId={stackId} fill="#10b981" radius={chartMode === "stacked" ? undefined : [0, 4, 4, 0]} barSize={14} opacity={fade("Attendance")} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -286,7 +404,16 @@ export default function TrainerOverviewClient({ cohorts, traineesByCohort, weekl
                       onClick={() => setSelectedCohortId((prev) => (prev === c.id ? null : c.id))}
                       className={`cursor-pointer transition-colors ${isSelected ? "bg-orange-50" : "hover:bg-slate-50"}`}
                     >
-                      <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{c.codeName}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <p className="font-medium text-slate-900">{c.codeName}</p>
+                        {(c.name !== c.codeName || c.trainerName) && (
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {c.name !== c.codeName ? c.name : ""}
+                            {c.name !== c.codeName && c.trainerName ? " · " : ""}
+                            {c.trainerName ?? ""}
+                          </p>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.level === "associate" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
                           {c.level}

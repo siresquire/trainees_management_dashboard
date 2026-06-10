@@ -7,6 +7,7 @@ export type TrainerOverviewCohort = {
   name:            string;
   codeName:        string;
   level:           string;
+  trainerName:     string | null;
   totalTrainees:   number;
   labsDoneTotal:   number;
   labsTotal:       number;
@@ -131,6 +132,7 @@ export default async function TrainerOverviewPage() {
     completionRows,
     attendanceRows,
     { data: weeklyTrendRows },
+    trainerNameByCohort,
   ] = await Promise.all([
     traineeIds.length
       ? svc.from("vouchers")
@@ -157,6 +159,29 @@ export default async function TrainerOverviewPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ? (svc.rpc as any)("get_admin_weekly_trend", { p_cohort_ids: activeCohortIds }) as Promise<{ data: Array<{ cohort_id: string; week_number: number; labs_done: number; labs_total: number; kcs_done: number; kcs_total: number; att_done: number; att_total: number }> | null }>
       : Promise.resolve({ data: [] as Array<{ cohort_id: string; week_number: number; labs_done: number; labs_total: number; kcs_done: number; kcs_total: number; att_done: number; att_total: number }> }),
+    // Cohort owner (trainer) names — for chart tooltips and the summary table
+    (async () => {
+      const map = new Map<string, string>();
+      if (!activeCohortIds.length) return map;
+      const { data: ownerAccess } = await svc
+        .from("cohort_access")
+        .select("cohort_id, trainer_id")
+        .eq("role", "owner")
+        .in("cohort_id", activeCohortIds);
+      const ownerIds = [...new Set((ownerAccess ?? []).map((o) => o.trainer_id))];
+      if (!ownerIds.length) return map;
+      const { data: ownerProfiles } = await svc
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", ownerIds);
+      const nameById = new Map((ownerProfiles ?? []).map((p) => [p.id, p.full_name]));
+      for (const o of ownerAccess ?? []) {
+        if (map.has(o.cohort_id)) continue; // first owner wins
+        const n = nameById.get(o.trainer_id);
+        if (n) map.set(o.cohort_id, n);
+      }
+      return map;
+    })(),
   ]);
 
   // Defensive: only count rows belonging to known active trainees. Protects
@@ -226,28 +251,32 @@ export default async function TrainerOverviewPage() {
     if (o.outcome === "failed") failedByCohort.set(cid, (failedByCohort.get(cid) ?? 0) + 1);
   }
 
-  const overviewCohorts: TrainerOverviewCohort[] = (cohorts ?? []).map((c) => {
-    const total     = traineesByCohortCount.get(c.id) ?? 0;
-    const labsTotal = labsTasksByCohort.get(c.id) ?? 0;
-    const kcsTotal  = kcsTasksByCohort.get(c.id)  ?? 0;
-    const sesTotal  = sessionsByCohort.get(c.id)  ?? 0;
-    return {
-      id:               c.id,
-      name:             c.name,
-      codeName:         c.code_name ?? c.name,
-      level:            c.level ?? "practitioner",
-      totalTrainees:    total,
-      labsDoneTotal:    labsDoneByCohort.get(c.id) ?? 0,
-      labsTotal:        labsTotal * total,
-      kcsDoneTotal:     kcsDoneByCohort.get(c.id)  ?? 0,
-      kcsTotal:         kcsTotal * total,
-      sessionsAttended: attendanceDoneByCohort.get(c.id) ?? 0,
-      sessionsTotal:    sesTotal * total,
-      vouchersIssued:   vouchersByCohort.get(c.id) ?? 0,
-      examPassed:       passedByCohort.get(c.id)   ?? 0,
-      examFailed:       failedByCohort.get(c.id)   ?? 0,
-    };
-  });
+  const overviewCohorts: TrainerOverviewCohort[] = (cohorts ?? [])
+    .map((c) => {
+      const total     = traineesByCohortCount.get(c.id) ?? 0;
+      const labsTotal = labsTasksByCohort.get(c.id) ?? 0;
+      const kcsTotal  = kcsTasksByCohort.get(c.id)  ?? 0;
+      const sesTotal  = sessionsByCohort.get(c.id)  ?? 0;
+      return {
+        id:               c.id,
+        name:             c.name,
+        codeName:         c.code_name ?? c.name,
+        level:            c.level ?? "practitioner",
+        trainerName:      trainerNameByCohort.get(c.id) ?? null,
+        totalTrainees:    total,
+        labsDoneTotal:    labsDoneByCohort.get(c.id) ?? 0,
+        labsTotal:        labsTotal * total,
+        kcsDoneTotal:     kcsDoneByCohort.get(c.id)  ?? 0,
+        kcsTotal:         kcsTotal * total,
+        sessionsAttended: attendanceDoneByCohort.get(c.id) ?? 0,
+        sessionsTotal:    sesTotal * total,
+        vouchersIssued:   vouchersByCohort.get(c.id) ?? 0,
+        examPassed:       passedByCohort.get(c.id)   ?? 0,
+        examFailed:       failedByCohort.get(c.id)   ?? 0,
+      };
+    })
+    // Alphabetical by the code name shown in charts/tables — easier lookup
+    .sort((a, b) => a.codeName.localeCompare(b.codeName, undefined, { sensitivity: "base" }));
 
   // ── Build per-cohort trainee summaries for the drilldown panel ────────────
 
