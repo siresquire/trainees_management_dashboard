@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import * as XLSX from "xlsx";
+import { AWS_PASSING_SCORES } from "@/lib/exam-constants";
 
 type ExamType = "CCP" | "SAA-C03" | "DVA-C02" | "SAP-C02" | "DOP-C02";
 
@@ -461,16 +462,6 @@ export async function updateOfficialScore(
     return { error: msg || "Unexpected error updating score." };
   }
 }
-
-// ── Official AWS passing scores per exam type ─────────────────────────────────
-// These are the minimum scores (out of 1000) set by AWS for each certification.
-export const AWS_PASSING_SCORES: Record<string, number> = {
-  "CCP":     700,
-  "SAA-C03": 720,
-  "DVA-C02": 720,
-  "SAP-C02": 750,
-  "DOP-C02": 750,
-};
 
 // ── Trainee self-reports their own exam result ────────────────────────────────
 

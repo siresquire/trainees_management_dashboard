@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
-import { submitMyExamResult, deleteMyExamResult, AWS_PASSING_SCORES } from "@/actions/exams";
+import { submitMyExamResult, deleteMyExamResult } from "@/actions/exams";
+import { AWS_PASSING_SCORES } from "@/lib/exam-constants";
 import { upsertExamSchedule } from "@/actions/exam-schedules";
 
 type Quiz = { id: string; quiz_name: string; focus_type: string; focus_label: string | null; week_number: number; quiz_date: string | null; max_score: number };
