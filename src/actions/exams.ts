@@ -366,7 +366,8 @@ export async function saveOfficialScore(
     revalidatePath("/trainee/exams");
     return { success: true };
   } catch (e) {
-    return { error: (e as Error).message ?? "Unexpected error saving score." };
+    const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Unexpected error saving score.";
+    return { error: msg || "Unexpected error saving score." };
   }
 }
 
@@ -456,7 +457,8 @@ export async function updateOfficialScore(
     revalidatePath("/trainee/exams");
     return { success: true };
   } catch (e) {
-    return { error: (e as Error).message ?? "Unexpected error updating score." };
+    const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Unexpected error updating score.";
+    return { error: msg || "Unexpected error updating score." };
   }
 }
 
