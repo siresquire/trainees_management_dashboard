@@ -39,6 +39,14 @@ function overallPct(t: TraineeAnalytic, labTotal: number, kcTotal: number) {
   return Math.round((lp + kp) / 2);
 }
 
+// Spread stacked points apart so co-located trainees don't invisibly overlap
+function jitter(id: string, salt: string, range = 2.5): number {
+  let h = 0;
+  const s = id + salt;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return ((((h >>> 0) % 1000) / 1000) - 0.5) * range * 2;
+}
+
 // Colour by actual position; at-risk flag is shown as a ring, not colour override
 function dotFill(labP: number, attP: number): string {
   if (labP >= 80 && attP >= 80) return "#22c55e";   // green — both strong
@@ -293,9 +301,13 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
   const scatterData = useMemo(() => trainees.map((t) => ({
     id:     t.id,
     name:   t.name,
+    // Raw percentages kept for the tooltip
     labPct: pct(t.labDone,  labTotal),
     attPct: pct(t.attended, totalSessions),
     kcPct:  pct(t.kcDone,   kcTotal),
+    // Jittered coordinates so co-located trainees don't render as a single dot
+    labJ:   Math.min(100, Math.max(0, pct(t.labDone,  labTotal)    + jitter(t.id, "l"))),
+    attJ:   Math.min(100, Math.max(0, pct(t.attended, totalSessions) + jitter(t.id, "a"))),
     atRisk: atRiskIds.has(t.id),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   })), [trainees, labTotal, kcTotal, totalSessions, atRisk]);
@@ -424,12 +436,12 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
               <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis
-                  dataKey="labPct" name="Labs" unit="%" type="number" domain={[0, 100]}
+                  dataKey="labJ" name="Labs" unit="%" type="number" domain={[0, 100]}
                   tick={{ fontSize: 11 }}
                   label={{ value: "Labs %", position: "insideBottom", offset: -8, fontSize: 10 }}
                 />
                 <YAxis
-                  dataKey="attPct" name="Attendance" unit="%" type="number" domain={[0, 100]}
+                  dataKey="attJ" name="Attendance" unit="%" type="number" domain={[0, 100]}
                   tick={{ fontSize: 11 }}
                   label={{ value: "Attend %", angle: -90, position: "insideLeft", fontSize: 10 }}
                 />
