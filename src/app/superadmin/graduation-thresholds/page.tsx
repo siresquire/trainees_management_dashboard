@@ -38,12 +38,13 @@ export default async function GraduationThresholdsPage() {
 
   const cohortIds = cohorts.map((c) => c.id);
 
-  type CompRow = { trainee_id: string; cohort_id: string; lab_count: number; kc_count: number };
+  type CompRow  = { trainee_id: string; cohort_id: string; lab_count: number; kc_count: number };
+  type DenomRow = { cohort_id: string; lab_tasks: number; kc_tasks: number };
 
   const [
     { data: trainees },
     { data: completionRows },
-    { data: tasks },
+    { data: denomRows },
   ] = await Promise.all([
     supabase
       .from("trainees")
@@ -53,19 +54,16 @@ export default async function GraduationThresholdsPage() {
       .is("deleted_at", null),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase.rpc as any)("get_admin_completion_summary", { p_cohort_ids: cohortIds }) as Promise<{ data: CompRow[] | null }>,
-    supabase
-      .from("cohort_week_tasks")
-      .select("cohort_id, task_type")
-      .in("cohort_id", cohortIds),
+    // Use the dedicated denominator RPC — direct cohort_week_tasks queries are
+    // silently truncated by PostgREST at ~1000 rows when many cohorts are active.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.rpc as any)("get_admin_cohort_denominators", { p_cohort_ids: cohortIds }) as Promise<{ data: DenomRow[] | null }>,
   ]);
 
-  // Per-cohort task totals (denominator)
+  // Per-cohort task totals from the safe RPC (one row per cohort, no truncation)
   const cohortTotals = new Map<string, { lab: number; kc: number }>();
-  for (const task of tasks ?? []) {
-    const entry = cohortTotals.get(task.cohort_id) ?? { lab: 0, kc: 0 };
-    if (task.task_type === "lab") entry.lab++;
-    else if (task.task_type === "kc") entry.kc++;
-    cohortTotals.set(task.cohort_id, entry);
+  for (const d of denomRows ?? []) {
+    cohortTotals.set(d.cohort_id, { lab: Number(d.lab_tasks), kc: Number(d.kc_tasks) });
   }
 
   // Completion counts per trainee

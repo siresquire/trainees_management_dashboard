@@ -10,13 +10,8 @@ function pct(done: number, total: number) {
 }
 
 function PctBadge({ done, total }: { done: number; total: number }) {
-  if (total === 0) {
-    // Tasks not yet configured in cohort_week_tasks — show raw count if available
-    return done > 0
-      ? <span className="tabular-nums font-semibold text-slate-700">{done}<span className="ml-1 text-xs text-slate-400 font-normal">no total</span></span>
-      : <span className="text-slate-300">0</span>;
-  }
-  const p = pct(done, total)!;
+  const p = pct(done, total);
+  if (p === null) return <span className="text-slate-300">—</span>;
   const cls =
     p >= 80 ? "text-green-600" : p >= 60 ? "text-amber-600" : p > 0 ? "text-red-500" : "text-slate-300";
   return (
@@ -220,7 +215,7 @@ export default function GraduationThresholdsClient({ rows }: { rows: GradRow[] }
                       <td className="px-4 py-3 text-right">
                         {s.minLabs === Infinity ? (
                           <span className="text-slate-300">—</span>
-                        ) : s.labsTotal > 0 ? (
+                        ) : (
                           <span className="tabular-nums">
                             <span className="font-semibold text-slate-800">{s.minLabs}</span>
                             <span className="text-slate-400 text-xs ml-1">/ {s.labsTotal}</span>
@@ -230,17 +225,12 @@ export default function GraduationThresholdsClient({ rows }: { rows: GradRow[] }
                               </span>
                             )}
                           </span>
-                        ) : (
-                          <span className="tabular-nums">
-                            <span className="font-semibold text-slate-800">{s.minLabs}</span>
-                            <span className="ml-1 text-xs text-slate-400">no total</span>
-                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {s.minKcs === Infinity ? (
                           <span className="text-slate-300">—</span>
-                        ) : s.kcsTotal > 0 ? (
+                        ) : (
                           <span className="tabular-nums">
                             <span className="font-semibold text-slate-800">{s.minKcs}</span>
                             <span className="text-slate-400 text-xs ml-1">/ {s.kcsTotal}</span>
@@ -249,11 +239,6 @@ export default function GraduationThresholdsClient({ rows }: { rows: GradRow[] }
                                 ({kcMinPct}%)
                               </span>
                             )}
-                          </span>
-                        ) : (
-                          <span className="tabular-nums">
-                            <span className="font-semibold text-slate-800">{s.minKcs}</span>
-                            <span className="ml-1 text-xs text-slate-400">no total</span>
                           </span>
                         )}
                       </td>
