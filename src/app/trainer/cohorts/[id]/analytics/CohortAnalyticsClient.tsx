@@ -39,12 +39,12 @@ function overallPct(t: TraineeAnalytic, labTotal: number, kcTotal: number) {
   return Math.round((lp + kp) / 2);
 }
 
-// Three-tier colour for scatter dots
-function dotFill(labP: number, attP: number, atRisk: boolean): string {
-  if (atRisk) return "#ef4444";                          // red  — at risk
-  if (labP >= 80 && attP >= 80) return "#22c55e";        // green — both strong
-  if (labP >= 60 && attP >= 60) return "#f97316";        // orange — moderate
-  return "#f59e0b";                                      // amber — one axis weak
+// Colour by actual position; at-risk flag is shown as a ring, not colour override
+function dotFill(labP: number, attP: number): string {
+  if (labP >= 80 && attP >= 80) return "#22c55e";   // green — both strong
+  if (labP >= 60 && attP >= 60) return "#f97316";   // orange — moderate
+  if (labP >= 40 || attP >= 40) return "#f59e0b";   // amber — one axis weak
+  return "#ef4444";                                  // red — both weak
 }
 
 function heatCell(done: number, total: number): { bg: string; text: string; label: string } {
@@ -152,13 +152,11 @@ function WeekDetailPanel({
   labTotal,
   kcTotal,
   weekTotals,
-  isPractitioner,
 }: {
   trainee: TraineeAnalytic;
   labTotal: number;
   kcTotal: number;
   weekTotals: { week: number; labTotal: number; kcTotal: number }[];
-  isPractitioner: boolean;
 }) {
   const weekData = weekTotals.map((wt) => {
     const d = trainee.weekData.find((w) => w.week === wt.week);
@@ -190,7 +188,7 @@ function WeekDetailPanel({
             <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 10 }} />
             <Tooltip formatter={(v) => `${v}%`} />
             {labTotal > 0 && <Bar dataKey="Labs" fill="#f97316" radius={[3, 3, 0, 0]} />}
-            {!isPractitioner && kcTotal > 0 && <Bar dataKey="KCs" fill="#8b5cf6" radius={[3, 3, 0, 0]} />}
+            {kcTotal > 0 && <Bar dataKey="KCs" fill="#8b5cf6" radius={[3, 3, 0, 0]} />}
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -201,7 +199,7 @@ function WeekDetailPanel({
             <tr className="border-b border-orange-100">
               <th className="text-left px-2 py-1 font-medium text-slate-500">Week</th>
               {labTotal > 0 && <th className="text-right px-2 py-1 font-medium text-slate-500">Labs</th>}
-              {!isPractitioner && kcTotal > 0 && <th className="text-right px-2 py-1 font-medium text-slate-500">KCs</th>}
+              {kcTotal > 0 && <th className="text-right px-2 py-1 font-medium text-slate-500">KCs</th>}
             </tr>
           </thead>
           <tbody>
@@ -218,7 +216,7 @@ function WeekDetailPanel({
                     )}
                   </td>
                 )}
-                {!isPractitioner && kcTotal > 0 && (
+                {kcTotal > 0 && (
                   <td className="px-2 py-1 text-right text-slate-600 tabular-nums">
                     {w.KcDone}/{w.KcTot}
                     {w.KcTot > 0 && (
@@ -240,8 +238,7 @@ function WeekDetailPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsData }) {
-  const { trainees, labTotal, kcTotal, totalSessions, weekTotals, cohortId, cohortLevel, atRisk } = data;
-  const isPractitioner = cohortLevel === "practitioner";
+  const { trainees, labTotal, kcTotal, totalSessions, weekTotals, cohortId, atRisk } = data;
   const atRiskIds  = new Set(atRisk.map((r) => r.traineeId));
   const currentWeek = atRisk[0]?.currentWeek ?? null;
 
@@ -352,10 +349,10 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
             </span>
           )}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className={`grid grid-cols-2 gap-4 ${kcTotal > 0 ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
           <StatCard label="Trainees"   value={trainees.length} />
           <StatCard label="Avg Labs"   value={`${avgLabPct}%`}  textColor={scoreColor(avgLabPct)} />
-          {!isPractitioner && <StatCard label="Avg KCs" value={`${avgKcPct}%`} textColor={scoreColor(avgKcPct)} />}
+          {kcTotal > 0 && <StatCard label="Avg KCs" value={`${avgKcPct}%`} textColor={scoreColor(avgKcPct)} />}
           <StatCard label="Attendance" value={`${avgAttPct}%`}  textColor={scoreColor(avgAttPct, 75, 50)} />
           <StatCard
             label="At Risk"
@@ -410,13 +407,17 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
               { color: "#22c55e", label: "Both ≥ 80%" },
               { color: "#f97316", label: "Moderate (60–80%)" },
               { color: "#f59e0b", label: "One axis weak" },
-              { color: "#ef4444", label: "At risk" },
+              { color: "#ef4444", label: "Both weak" },
             ].map(({ color, label }) => (
               <span key={label} className="flex items-center gap-1 text-xs text-slate-500">
                 <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: color }} />
                 {label}
               </span>
             ))}
+            <span className="flex items-center gap-1 text-xs text-slate-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-red-500" style={{ background: "transparent" }} />
+              At risk (ring)
+            </span>
           </div>
           {totalSessions > 0 && labTotal > 0 ? (
             <ResponsiveContainer width="100%" height={210}>
@@ -458,17 +459,20 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                     if (id) { setHighlightId((prev) => (prev === id ? null : id)); setExpandedId(id); }
                   }}
                   shape={(props: ScatterShapeProps) => {
-                    const p   = props.payload as { atRisk?: boolean; id?: string; labPct: number; attPct: number } | undefined;
-                    const isHL = highlightId === p?.id;
-                    const fill = dotFill(p?.labPct ?? 0, p?.attPct ?? 0, p?.atRisk ?? false);
+                    const p      = props.payload as { atRisk?: boolean; id?: string; labPct: number; attPct: number } | undefined;
+                    const isHL   = highlightId === p?.id;
+                    const isRisk = p?.atRisk ?? false;
+                    const fill   = dotFill(p?.labPct ?? 0, p?.attPct ?? 0);
+                    const stroke = isHL ? "#1e293b" : isRisk ? "#dc2626" : "#fff";
+                    const sw     = isHL ? 2.5 : isRisk ? 2 : 1;
                     return (
                       <circle
                         cx={props.cx ?? 0} cy={props.cy ?? 0}
                         r={isHL ? 10 : 7}
                         fill={fill}
                         fillOpacity={0.85}
-                        stroke={isHL ? "#1e293b" : "#fff"}
-                        strokeWidth={isHL ? 2 : 1}
+                        stroke={stroke}
+                        strokeWidth={sw}
                         style={{ cursor: "pointer" }}
                       />
                     );
@@ -513,7 +517,7 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                 type="monotone" dataKey="Labs" stroke="#f97316" strokeWidth={2.5}
                 fill="url(#labGrad)" dot={{ r: 4, fill: "#f97316" }} activeDot={{ r: 6 }}
               />
-              {!isPractitioner && kcTotal > 0 && (
+              {kcTotal > 0 && (
                 <Area
                   type="monotone" dataKey="KCs" stroke="#8b5cf6" strokeWidth={2.5}
                   fill="url(#kcGrad)" dot={{ r: 4, fill: "#8b5cf6" }} activeDot={{ r: 6 }}
@@ -536,7 +540,7 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                 Labs by Week
               </button>
             )}
-            {!isPractitioner && kcTotal > 0 && weekTotals.length > 0 && (
+            {kcTotal > 0 && weekTotals.length > 0 && (
               <button className={tabCls(heatTab === "kcs")} onClick={() => setHeatTab("kcs")}>
                 KCs by Week
               </button>
@@ -576,7 +580,7 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                   <th onClick={() => toggleSort("lab")} className="text-right px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer select-none hover:text-slate-700 whitespace-nowrap">
                     Labs <SortIcon k="lab" />
                   </th>
-                  {!isPractitioner && (
+                  {kcTotal > 0 && (
                     <th onClick={() => toggleSort("kc")} className="text-right px-4 py-3 text-xs font-medium text-slate-500 cursor-pointer select-none hover:text-slate-700 whitespace-nowrap">
                       KCs <SortIcon k="kc" />
                     </th>
@@ -611,10 +615,10 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                           {labTotal > 0 ? `${labP}%` : "—"}
                           {labTotal > 0 && <span className="ml-1 text-slate-300 font-normal">({t.labDone}/{labTotal})</span>}
                         </td>
-                        {!isPractitioner && (
+                        {kcTotal > 0 && (
                           <td className={`px-4 py-3 text-right text-xs tabular-nums font-semibold ${scoreColor(kcP)}`}>
-                            {kcTotal > 0 ? `${kcP}%` : "—"}
-                            {kcTotal > 0 && <span className="ml-1 text-slate-300 font-normal">({t.kcDone}/{kcTotal})</span>}
+                            {kcP}%
+                            <span className="ml-1 text-slate-300 font-normal">({t.kcDone}/{kcTotal})</span>
                           </td>
                         )}
                         <td className={`px-4 py-3 text-right text-xs tabular-nums font-semibold ${scoreColor(attP, 75, 50)}`}>
@@ -636,10 +640,10 @@ export default function CohortAnalyticsClient({ data }: { data: CohortAnalyticsD
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={isPractitioner ? 6 : 7} className="px-4 py-0 bg-orange-50 border-b border-orange-100">
+                          <td colSpan={kcTotal > 0 ? 7 : 6} className="px-4 py-0 bg-orange-50 border-b border-orange-100">
                             <WeekDetailPanel
                               trainee={t} labTotal={labTotal} kcTotal={kcTotal}
-                              weekTotals={weekTotals} isPractitioner={isPractitioner}
+                              weekTotals={weekTotals}
                             />
                           </td>
                         </tr>
