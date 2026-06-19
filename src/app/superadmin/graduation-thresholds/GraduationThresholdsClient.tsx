@@ -81,10 +81,12 @@ export default function GraduationThresholdsClient({ rows }: { rows: GradRow[] }
 
   // ── Derived data ──────────────────────────────────────────────────────────────
 
-  // Rows filtered by cohort selection → drives scorecards and summary table
+  // Rows filtered by cohort selection → drives scorecards and summary table.
+  // Empty selection (after "Clear") is treated as "no filter" so the page
+  // doesn't go blank — user can then check individual cohorts to narrow down.
   const filteredRows = useMemo(
     () =>
-      selectedCohortIds.size === allCohortOptions.length
+      selectedCohortIds.size === 0 || selectedCohortIds.size === allCohortOptions.length
         ? rows
         : rows.filter((r) => selectedCohortIds.has(r.cohortId)),
     [rows, selectedCohortIds, allCohortOptions.length],
@@ -224,11 +226,10 @@ export default function GraduationThresholdsClient({ rows }: { rows: GradRow[] }
     });
   }
 
-  const allSelected = selectedCohortIds.size === allCohortOptions.length;
+  const allSelected =
+    selectedCohortIds.size === 0 || selectedCohortIds.size === allCohortOptions.length;
   const filterLabel = allSelected
     ? "All cohorts"
-    : selectedCohortIds.size === 0
-    ? "No cohorts"
     : `${selectedCohortIds.size} of ${allCohortOptions.length} cohorts`;
 
   // ── Excel export ──────────────────────────────────────────────────────────────
