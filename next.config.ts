@@ -8,6 +8,14 @@ const supabaseConnectSrc = isDev
   : "https://*.supabase.co wss://*.supabase.co";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Default is 1 MB; Whizlabs CSV exports can reach ~3 MB due to verbose
+      // multi-line "Validation Steps" fields, so raise to match our in-code limit.
+      bodySizeLimit: "5mb",
+    },
+  },
+
   async headers() {
     return [
       {
