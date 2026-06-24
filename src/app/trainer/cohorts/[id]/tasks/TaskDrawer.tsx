@@ -180,7 +180,7 @@ export default function TaskDrawer({
       ].join(",")
     );
     const csv = [header, ...body].join("\r\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob(["﻿" + csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

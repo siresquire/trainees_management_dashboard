@@ -93,7 +93,9 @@ export async function GET(
   const slug = (cohort?.code_name ?? cohort?.name ?? cohortId).replace(/[^a-z0-9]/gi, "_");
   const date = new Date().toISOString().slice(0, 10);
 
-  return new Response(rows.join("\r\n"), {
+  // ﻿ is the UTF-8 BOM — tells Excel to open as UTF-8 instead of Windows-1252,
+  // preventing em dashes and other non-ASCII characters from appearing garbled.
+  return new Response("﻿" + rows.join("\r\n"), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${slug}_tasks_${date}.csv"`,
