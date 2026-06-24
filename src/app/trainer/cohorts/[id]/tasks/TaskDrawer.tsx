@@ -9,6 +9,7 @@ type Row = {
   trainee_id: string;
   full_name: string;
   serial_no: number | null;
+  amalitech_email: string | null;
   score: number | null;
   completed_at: string | null;
   done: boolean;
@@ -71,7 +72,7 @@ export default function TaskDrawer({
     (async () => {
       const { data: trainees } = await supabase
         .from("trainees")
-        .select("id, full_name, serial_no")
+        .select("id, full_name, serial_no, amalitech_email")
         .eq("cohort_id", task.cohortId)
         .eq("status", "active")
         .order("serial_no", { ascending: true, nullsFirst: false });
@@ -88,12 +89,13 @@ export default function TaskDrawer({
       const result: Row[] = (trainees ?? []).map((t) => {
         const comp = compMap.get(t.id);
         return {
-          trainee_id:   t.id,
-          full_name:    t.full_name,
-          serial_no:    t.serial_no,
-          score:        comp?.score ?? null,
-          completed_at: comp?.completed_at ?? null,
-          done:         !!comp,
+          trainee_id:      t.id,
+          full_name:       t.full_name,
+          serial_no:       t.serial_no,
+          amalitech_email: t.amalitech_email ?? null,
+          score:           comp?.score ?? null,
+          completed_at:    comp?.completed_at ?? null,
+          done:            !!comp,
         };
       });
 
@@ -164,6 +166,29 @@ export default function TaskDrawer({
     });
   }
 
+  function downloadCSV() {
+    if (!task) return;
+    const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const hasEmail = rows.some((r) => r.amalitech_email);
+    const header = ["#", "Trainee Name", ...(hasEmail ? ["Amalitech Email"] : []), "Status"].join(",");
+    const body = rows.map((r) =>
+      [
+        r.serial_no ?? "",
+        esc(r.full_name),
+        ...(hasEmail ? [r.amalitech_email ?? ""] : []),
+        r.done ? "Completed" : "Pending",
+      ].join(",")
+    );
+    const csv = [header, ...body].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Week${task.weekNumber}_${task.name.replace(/[^a-z0-9]/gi, "_").slice(0, 50)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (!task) return null;
 
   const done = rows.filter((r) => r.done).length;
@@ -224,6 +249,20 @@ export default function TaskDrawer({
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
+
+            {/* Download CSV button */}
+            {mode === "view" && !loading && rows.length > 0 && (
+              <button
+                onClick={downloadCSV}
+                title="Download CSV"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
               </button>
             )}
