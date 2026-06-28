@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AppShell, { type NavItem } from "@/components/AppShell";
+import SessionGuard from "@/components/SessionGuard";
 
 const NAV: NavItem[] = [
   { href: "/trainer/dashboard",      label: "Cohorts",        icon: "grid",     exact: true },
@@ -36,6 +37,7 @@ export default async function TrainerLayout({ children }: { children: React.Reac
       theme="light"
       settingsHref="/trainer/profile"
     >
+      <SessionGuard timeout={8 * 60 * 60 * 1000} />
       {children}
     </AppShell>
   );

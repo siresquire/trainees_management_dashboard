@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AppShell, { type NavItem } from "@/components/AppShell";
+import SessionGuard from "@/components/SessionGuard";
 
 const NAV: NavItem[] = [
   { href: "/admin/overview",   label: "Overview",   icon: "chart",    exact: true },
@@ -33,6 +34,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       backHref={isSuperAdmin ? "/superadmin/dashboard" : undefined}
       backLabel={isSuperAdmin ? "Super Admin" : undefined}
     >
+      <SessionGuard timeout={8 * 60 * 60 * 1000} />
       {children}
     </AppShell>
   );

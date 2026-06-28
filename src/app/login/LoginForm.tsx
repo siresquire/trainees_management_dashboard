@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { validateStaff, validateTrainee } from "./actions";
 import { useState } from "react";
 import Link from "next/link";
+import { markSessionActive } from "@/lib/session";
 
 type Cohort = { id: string; name: string; code_name: string | null };
 
@@ -32,7 +33,10 @@ export default function LoginForm({ cohorts }: { cohorts: Cohort[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ access_token, refresh_token }),
     }).then((res) => {
-      if (res.ok) window.location.href = "/trainee/dashboard";
+      if (res.ok) {
+        markSessionActive();
+        window.location.href = "/trainee/dashboard";
+      }
     });
   }, []);
 
@@ -84,6 +88,7 @@ function StaffForm() {
         setAuthError('Incorrect password. Use "Forgot password?" below to reset it.');
         setSigningIn(false);
       } else {
+        markSessionActive();
         window.location.href = staffState.dest!;
       }
     });
@@ -178,6 +183,7 @@ function TraineeForm({ cohorts }: { cohorts: Cohort[] }) {
         setAuthError('Incorrect password. Use "Forgot password?" below to reset it.');
         setSigningIn(false);
       } else {
+        markSessionActive();
         window.location.href = traineeState.dest!;
       }
     });
