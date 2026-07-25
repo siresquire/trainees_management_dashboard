@@ -11,6 +11,7 @@ import {
   deleteSession,
   updateAttendanceThresholds,
   recomputeCohortAttendance,
+  createEmailSession,
 } from "@/actions/attendance";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ type UnmatchedParticipant = {
 
 type Session = {
   id: string;
-  platform: "zoom" | "teams";
+  platform: "zoom" | "teams" | "manual";
   topic: string | null;
   started_at: string;
   total_duration_mins: number;
@@ -117,6 +118,11 @@ export default function AttendanceClient({
   // Panel visibility
   const [showZoomForm,  setShowZoomForm]  = useState(false);
   const [showTeamsForm, setShowTeamsForm] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
+
+  // Email form state
+  const [emailError,  setEmailError]  = useState("");
+  const [emailResult, setEmailResult] = useState<{ matched: number; unmatched?: string[] } | null>(null);
 
   // Which session row is expanded
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -281,6 +287,21 @@ export default function AttendanceClient({
     });
   }
 
+  function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setEmailError("");
+    setEmailResult(null);
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      const res = await createEmailSession(fd);
+      if (res.error) { setEmailError(res.error); toast(res.error, "error"); return; }
+      setEmailResult({ matched: res.matched ?? 0, unmatched: res.unmatched });
+      toast(`Attendance saved — ${res.matched} present`);
+      if (res.sessionId) setExpandedId(res.sessionId);
+      refresh();
+    });
+  }
+
   function handleDelete(sessionId: string) {
     startTransition(async () => {
       const res = await deleteSession(sessionId, cohortId);
@@ -333,7 +354,7 @@ export default function AttendanceClient({
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => { setShowZoomForm((v) => !v); setShowTeamsForm(false); }}
+            onClick={() => { setShowZoomForm((v) => !v); setShowTeamsForm(false); setShowEmailForm(false); }}
             className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
           >
             <svg className="w-3.5 h-3.5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
@@ -342,7 +363,7 @@ export default function AttendanceClient({
             Zoom CSV
           </button>
           <button
-            onClick={() => { setShowTeamsForm((v) => !v); setShowZoomForm(false); }}
+            onClick={() => { setShowTeamsForm((v) => !v); setShowZoomForm(false); setShowEmailForm(false); }}
             className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
           >
             <svg className="w-3.5 h-3.5 text-purple-500" viewBox="0 0 20 20" fill="currentColor">
@@ -351,11 +372,22 @@ export default function AttendanceClient({
             Teams Session
           </button>
           <button
+            onClick={() => { setShowEmailForm((v) => !v); setShowZoomForm(false); setShowTeamsForm(false); setEmailError(""); setEmailResult(null); }}
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+              <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+            </svg>
+            Paste Emails
+          </button>
+          <button
             disabled={recomputePending}
             onClick={() => {
               if (!confirm("Recompute attendance for all sessions in this cohort using the current present threshold? This will update all partial/brief records.")) return;
               setRecomputeMsg(null);
               setRecomputePending(true);
+              setShowEmailForm(false);
               startTransition(async () => {
                 const res = await recomputeCohortAttendance(cohortId);
                 setRecomputePending(false);
@@ -591,6 +623,109 @@ export default function AttendanceClient({
         </div>
       )}
 
+      {/* ── Email paste form ────────────────────────────────────────────────── */}
+      {showEmailForm && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <h3 className="text-sm font-semibold text-slate-800 mb-1">Paste Emails — Mark Attendance</h3>
+          <p className="text-xs text-slate-400 mb-4">
+            {cohortLevel === "practitioner"
+              ? "Paste personal emails (one per line or comma-separated). Trainees on the list are marked Present; all others Absent."
+              : "Paste Amalitech or personal emails (one per line or comma-separated). Trainees on the list are marked Present; all others Absent."}
+          </p>
+          <form onSubmit={handleEmailSubmit} className="space-y-4">
+            <input type="hidden" name="cohort_id" value={cohortId} />
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 mb-1 block">Week Number</span>
+                <input
+                  name="week_number"
+                  type="number"
+                  min={0}
+                  required
+                  placeholder="e.g. 4"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 mb-1 block">Session Number</span>
+                <input
+                  name="session_number"
+                  type="number"
+                  min={1}
+                  required
+                  placeholder="e.g. 1"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 mb-1 block">Date</span>
+                <input
+                  name="date"
+                  type="date"
+                  required
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 mb-1 block">
+                  Session Topic <span className="font-normal text-slate-400">(optional)</span>
+                </span>
+                <input
+                  name="topic"
+                  type="text"
+                  placeholder="e.g. VPC &amp; Networking"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600 mb-1 block">
+                Emails
+              </span>
+              <textarea
+                name="emails"
+                required
+                rows={7}
+                placeholder={"john.doe@amalitechtraining.org\njane.doe@gmail.com\n..."}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 font-mono resize-y"
+              />
+            </label>
+            {emailError && <p className="text-xs text-red-600">{emailError}</p>}
+            {emailResult && (
+              <div className="text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-2 space-y-0.5">
+                <p className="text-green-700 font-medium">
+                  {emailResult.matched} trainee{emailResult.matched !== 1 ? "s" : ""} marked Present
+                </p>
+                {emailResult.unmatched?.length ? (
+                  <p className="text-amber-700">
+                    {emailResult.unmatched.length} email{emailResult.unmatched.length !== 1 ? "s" : ""} not matched:{" "}
+                    {emailResult.unmatched.slice(0, 3).join(", ")}{emailResult.unmatched.length > 3 ? "…" : ""}
+                  </p>
+                ) : null}
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50 transition-colors"
+              >
+                {isPending ? "Saving…" : "Mark Attendance"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowEmailForm(false); setEmailError(""); setEmailResult(null); }}
+                className="text-sm px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* ── Session controls (search / sort / jump) ─────────────────────────── */}
       {sessions.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
@@ -645,7 +780,7 @@ export default function AttendanceClient({
       {sessions.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-slate-200 py-12 text-center">
           <p className="text-sm text-slate-400">
-            No sessions recorded yet. Upload a Zoom report or create a Teams session above.
+            No sessions recorded yet. Upload a Zoom report, create a Teams session, or paste emails above.
           </p>
         </div>
       ) : sortedFilteredSessions.length === 0 ? (
@@ -663,6 +798,7 @@ export default function AttendanceClient({
             const isExpanded = expandedId === session.id;
             const rowError   = rowErrors[session.id] ?? "";
             const isZoom     = session.platform === "zoom";
+            const isManual   = session.platform === "manual";
 
             // Manual duration state for this session
             const sessionDurations = manualDurations[session.id] ?? {};
@@ -677,7 +813,7 @@ export default function AttendanceClient({
                   </span>
 
                   {/* Platform */}
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${isZoom ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${isZoom ? "bg-blue-100 text-blue-600" : isManual ? "bg-slate-100 text-slate-500" : "bg-purple-100 text-purple-600"}`}>
                     {session.platform}
                   </span>
 
@@ -688,7 +824,7 @@ export default function AttendanceClient({
 
                   {/* Date & duration */}
                   <span className="text-xs text-slate-400 flex-shrink-0 hidden sm:block">
-                    {fmtDate(session.started_at)} · {session.total_duration_mins} min
+                    {fmtDate(session.started_at)}{!isManual && <> · {session.total_duration_mins} min</>}
                   </span>
 
                   {/* Attendance summary dots */}
@@ -834,8 +970,40 @@ export default function AttendanceClient({
                       </div>
                     )}
 
+                    {/* ── Manual (email-paste): read-only present/absent ── */}
+                    {isManual && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-100">
+                              <th className="text-left px-5 py-2.5 text-xs font-medium text-slate-500 w-8">#</th>
+                              <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">Trainee</th>
+                              <th className="text-right px-5 py-2.5 text-xs font-medium text-slate-500">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {trainees.map((t) => {
+                              const row = attMap.get(t.id);
+                              const status = row?.status ?? "absent";
+                              return (
+                                <tr key={t.id} className="hover:bg-slate-50">
+                                  <td className="px-5 py-2.5 text-xs text-slate-400">{t.serial_no ?? "—"}</td>
+                                  <td className="px-4 py-2.5 text-sm text-slate-800">{t.full_name}</td>
+                                  <td className="px-5 py-2.5 text-right">
+                                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${STATUS_BADGE[status] ?? STATUS_BADGE.absent}`}>
+                                      {STATUS_LABEL[status] ?? "Absent"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
                     {/* ── Teams: manual entry + CSV upload ───────────────── */}
-                    {!isZoom && (
+                    {!isZoom && !isManual && (
                       <div className="p-5 space-y-5">
 
                         {/* CSV upload */}

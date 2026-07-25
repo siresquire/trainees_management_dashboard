@@ -488,13 +488,16 @@ export async function updateAttendanceThresholds(
 
   if (updateErr) return { error: updateErr.message };
 
-  // Recalculate status for all existing attendance rows in this cohort
+  // Recalculate status for all existing attendance rows in this cohort.
+  // Manual sessions store explicit present/absent with no duration data — skip them.
   const { data: sessions } = await service
     .from("sessions")
-    .select("id")
+    .select("id, platform")
     .eq("cohort_id", cohortId);
 
-  const sessionIds = (sessions ?? []).map((s) => s.id);
+  const sessionIds = (sessions ?? [])
+    .filter((s) => (s as Record<string, unknown>).platform !== "manual")
+    .map((s) => s.id);
 
   if (sessionIds.length) {
     const { data: rows } = await service
@@ -565,10 +568,14 @@ export async function recomputeCohortAttendance(
   const isPractitioner = cohort.level === "practitioner";
   const presentMins    = (cohort as Record<string, unknown>).present_threshold_mins as number ?? 45;
 
-  const { data: sessions } = await svc.from("sessions").select("id").eq("cohort_id", cohortId);
+  // Manual sessions store explicit present/absent with no duration — exclude from recompute.
+  const { data: sessions } = await svc.from("sessions").select("id, platform").eq("cohort_id", cohortId);
   if (!sessions?.length) return { updated: 0 };
 
-  const sessionIds = sessions.map((s) => s.id);
+  const sessionIds = sessions
+    .filter((s) => (s as Record<string, unknown>).platform !== "manual")
+    .map((s) => s.id);
+  if (!sessionIds.length) return { updated: 0 };
 
   // Fetch all attendance records with their durations
   const { data: records } = await svc
@@ -605,4 +612,138 @@ export async function recomputeCohortAttendance(
   revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
   revalidatePath(`/trainer/cohorts/${cohortId}`);
   return { updated };
+}
+
+// ── Create session from pasted emails ─────────────────────────────────────────
+// Marks trainees whose email matches as Present; all others Absent.
+// Associate cohorts accept Amalitech or personal email; Practitioner accepts personal only.
+
+export async function createEmailSession(formData: FormData): Promise<{
+  error?: string;
+  sessionId?: string;
+  matched?: number;
+  unmatched?: string[];
+}> {
+  const cohortId  = formData.get("cohort_id")      as string;
+  const weekNum   = parseInt(formData.get("week_number")    as string, 10);
+  const sessionNum = parseInt(formData.get("session_number") as string, 10);
+  const topic     = (formData.get("topic") as string | null)?.trim() || "";
+  const dateStr   = formData.get("date")           as string;
+  const emailsRaw = formData.get("emails")         as string;
+
+  if (!cohortId)       return { error: "Missing cohort ID." };
+  if (isNaN(weekNum))  return { error: "Invalid week number." };
+  if (isNaN(sessionNum)) return { error: "Invalid session number." };
+  if (!dateStr)        return { error: "Date is required." };
+  if (!emailsRaw?.trim()) return { error: "No emails provided." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "super_admin") {
+    const { data: access } = await supabase
+      .from("cohort_access")
+      .select("id")
+      .eq("cohort_id", cohortId)
+      .eq("trainer_id", user.id)
+      .maybeSingle();
+    if (!access) return { error: "You do not have access to this cohort." };
+  }
+
+  const svc = createServiceClient();
+
+  const { data: cohort } = await svc
+    .from("cohorts")
+    .select("level")
+    .eq("id", cohortId)
+    .single();
+
+  if (!cohort) return { error: "Cohort not found." };
+  const isPractitioner = cohort.level === "practitioner";
+
+  const { data: trainees } = await svc
+    .from("trainees")
+    .select("id, personal_email, amalitech_email")
+    .eq("cohort_id", cohortId)
+    .eq("status", "active")
+    .is("deleted_at", null);
+
+  if (!trainees?.length) return { error: "No active trainees in this cohort." };
+
+  // Build email → trainee ID lookup
+  const emailToId = new Map<string, string>();
+  for (const t of trainees) {
+    if (t.personal_email)
+      emailToId.set(t.personal_email.toLowerCase(), t.id);
+    if (!isPractitioner && t.amalitech_email)
+      emailToId.set(t.amalitech_email.toLowerCase(), t.id);
+  }
+
+  // Parse pasted emails (newline, comma, or semicolon separated)
+  const pastedEmails = emailsRaw
+    .split(/[\n,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+
+  if (!pastedEmails.length) return { error: "No valid email addresses found." };
+
+  const presentIds = new Set<string>();
+  const unmatched: string[] = [];
+  for (const email of pastedEmails) {
+    const id = emailToId.get(email);
+    if (id) presentIds.add(id);
+    else     unmatched.push(email);
+  }
+
+  // Insert session (started_at = supplied date at noon local)
+  const startedAt = new Date(`${dateStr}T12:00:00`).toISOString();
+
+  const { data: session, error: sessionErr } = await svc
+    .from("sessions")
+    .insert({
+      cohort_id:           cohortId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      platform:            "manual" as any,
+      topic:               topic,
+      started_at:          startedAt,
+      total_duration_mins: 0,
+      week_number:         weekNum,
+      session_number:      sessionNum,
+    })
+    .select("id")
+    .single();
+
+  if (sessionErr || !session) return { error: sessionErr?.message ?? "Failed to create session." };
+
+  // Upsert attendance for every active trainee
+  const rows = trainees.map((t) => ({
+    session_id:         session.id,
+    trainee_id:         t.id,
+    duration_mins:      presentIds.has(t.id) ? 1 : 0,
+    total_session_mins: 0,
+    status:             (presentIds.has(t.id) ? "present" : "absent") as "present" | "absent",
+  }));
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error: attErr } = await svc
+      .from("attendance")
+      .upsert(rows.slice(i, i + 500), { onConflict: "session_id,trainee_id" });
+    if (attErr) return { error: attErr.message };
+  }
+
+  revalidatePath(`/trainer/cohorts/${cohortId}/attendance`);
+  revalidatePath(`/trainer/cohorts/${cohortId}`);
+
+  return {
+    sessionId: session.id,
+    matched:   presentIds.size,
+    unmatched: unmatched.length ? unmatched : undefined,
+  };
 }
