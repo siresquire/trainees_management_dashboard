@@ -241,12 +241,17 @@ export async function startQuizAttempt(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Get trainee record for this user
+  // Get trainee record for this user (resolve current enrollment if more than one)
   const { data: trainee } = await supabase
     .from("trainees")
     .select("id")
     .eq("user_id", user.id)
-    .single();
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .order("graduated",  { ascending: true  })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (!trainee) return { error: "Trainee record not found." };
 
   // Fetch the assignment
@@ -370,9 +375,17 @@ export async function submitQuizAttempt(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Get trainee
+  // Get trainee (resolve current enrollment if more than one)
   const { data: trainee } = await supabase
-    .from("trainees").select("id").eq("user_id", user.id).single();
+    .from("trainees")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .order("graduated",  { ascending: true  })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (!trainee) return { error: "Trainee record not found." };
 
   // Fetch attempt

@@ -12,14 +12,20 @@ export default async function TraineeDashboard() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Trainee record + cohort info (including new fields)
+  // Trainee record + cohort info (including new fields).
+  // A trainee can hold more than one enrollment (e.g. a practitioner graduate
+  // who moved into an associate cohort), so resolve the current one rather
+  // than assuming a single row: in-progress before graduated, newest first.
   const { data: trainee } = await supabase
     .from("trainees")
     .select("id, full_name, cohort_id, status, graduated, cohorts(name, level, cohort_subtype, start_date, end_date, training_weeks, present_threshold_mins)")
     .eq("user_id", user.id)
     .eq("status", "active")
     .is("deleted_at", null)
-    .single();
+    .order("graduated",  { ascending: true  })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (!trainee) {
     return (

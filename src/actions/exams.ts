@@ -487,13 +487,16 @@ export async function submitMyExamResult(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Verify trainee identity
+  // Verify trainee identity (resolve current enrollment if more than one)
   const { data: trainee } = await supabase
     .from("trainees")
     .select("id")
     .eq("user_id", user.id)
     .eq("status", "active")
     .is("deleted_at", null)
+    .order("graduated",  { ascending: true  })
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (!trainee) return { error: "No active trainee record found." };

@@ -20,7 +20,11 @@ export default async function TakeQuizPage({
     .eq("user_id", user.id)
     .eq("status", "active")
     .is("deleted_at", null)
-    .single();
+    // Resolve the current enrollment when a trainee has more than one
+    .order("graduated",  { ascending: true  })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (!trainee) redirect("/trainee/quizzes");
 
   // Assignment
