@@ -41,7 +41,21 @@ export async function updateMyProfile(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/trainer/profile");
+  // Trainees carry their own copy of the name on each enrollment row, which is
+  // what trainer rosters and CSV exports read. Keep those in step so a trainee
+  // renaming themselves doesn't leave the roster showing the old name. RLS has
+  // no trainee self-update policy, so this goes through the service client —
+  // safe because it is scoped to the authenticated user's own rows.
+  const { error: traineeErr } = await createServiceClient()
+    .from("trainees")
+    .update({ full_name: parsed.data.full_name })
+    .eq("user_id", user.id)
+    .is("deleted_at", null);
+
+  if (traineeErr) return { error: traineeErr.message };
+
+  // The name is shown in the app shell on every page, not just the profile page.
+  revalidatePath("/", "layout");
   return { success: true };
 }
 

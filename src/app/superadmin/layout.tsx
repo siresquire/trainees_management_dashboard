@@ -24,7 +24,12 @@ export default async function SuperAdminLayout({ children }: { children: React.R
   if (!profile || profile.role !== "super_admin") redirect("/login");
 
   return (
-    <AppShell navItems={NAV} user={{ name: profile.full_name, role: profile.role }} theme="dark">
+    <AppShell
+      navItems={NAV}
+      user={{ name: profile.full_name, role: profile.role }}
+      theme="dark"
+      settingsHref="/trainer/profile"
+    >
       <SessionGuard timeout={8 * 60 * 60 * 1000} />
       {children}
     </AppShell>
